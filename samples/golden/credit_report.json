@@ -1,0 +1,104 @@
+[
+  {
+    "document_file": "transportadora-estrela.md",
+    "expected": {
+      "company_name": "Transportadora Estrela S.A.",
+      "sector": "logística e transporte de cargas",
+      "analysis_date": "12/08/2026",
+      "overall_risk_score": 75,
+      "risk_rating": "C",
+      "decision": "conditional",
+      "decision_justification": "Aprovação condicional com limite de R$ 350 mil, garantia de recebíveis e revisão semestral.",
+      "confidence": 0.85,
+      "key_metrics": [
+        {"name": "Receita líquida", "value": "48,2 milhões", "unit": "R$", "period": "2025"},
+        {"name": "EBITDA", "value": "4,6 milhões", "unit": "R$", "period": "2025"},
+        {"name": "Liquidez corrente", "value": "0,9", "unit": null, "period": "2025"}
+      ],
+      "financial_health": {
+        "revenue": "48,2 milhões",
+        "net_profit": null,
+        "total_debt": "19,8 milhões",
+        "liquidity_ratio": "0,9",
+        "debt_to_equity": null
+      },
+      "credit_factors": [
+        {"factor": "Estabilidade da receita", "assessment": "Receita estável frente ao ano anterior", "severity": "low"},
+        {"factor": "Endividamento de curto prazo", "assessment": "Dívida bancária de curto prazo em alta", "severity": "high"},
+        {"factor": "Concentração de receita", "assessment": "42% do faturamento depende de um único cliente", "severity": "medium"}
+      ],
+      "red_flags": [
+        {"flag": "Atraso de 90 dias com fornecedor", "severity": "high", "evidence": "Contrato de manutenção com juros de mora"},
+        {"flag": "Notificações extrajudiciais", "severity": "medium", "evidence": "Atraso em parcelas de leasing da frota"},
+        {"flag": "Concentração de receita", "severity": "medium", "evidence": "42% do faturamento de um único cliente"}
+      ],
+      "recommended_limit": "R$ 350 mil"
+    }
+  },
+  {
+    "document_file": "varejo-horizonte.md",
+    "expected": {
+      "company_name": "Varejo Horizonte Ltda.",
+      "sector": "varejo de bens de consumo",
+      "analysis_date": "11/08/2026",
+      "overall_risk_score": 55,
+      "risk_rating": "B",
+      "decision": "approve",
+      "decision_justification": "Aprovação de linha de crédito de até R$ 1,2 milhão com acompanhamento trimestral.",
+      "confidence": 0.85,
+      "key_metrics": [
+        {"name": "Receita", "value": "89,5 milhões", "unit": "R$", "period": "2025"},
+        {"name": "EBITDA", "value": "7,9 milhões", "unit": "R$", "period": "2025"},
+        {"name": "Liquidez corrente", "value": "1,7", "unit": null, "period": "2025"}
+      ],
+      "financial_health": {
+        "revenue": "89,5 milhões",
+        "net_profit": null,
+        "total_debt": "14,2 milhões",
+        "liquidity_ratio": "1,7",
+        "debt_to_equity": null
+      },
+      "credit_factors": [
+        {"factor": "Margem bruta", "assessment": "Margem bruta saudável de 34%", "severity": "low"},
+        {"factor": "Concentração regional", "assessment": "85% das lojas em um único estado", "severity": "medium"}
+      ],
+      "red_flags": [
+        {"flag": "Dependência do crédito ao consumo", "severity": "medium", "evidence": "38% das vendas financiadas"},
+        {"flag": "Concentração regional", "severity": "medium", "evidence": "85% das lojas em um único estado"}
+      ],
+      "recommended_limit": "R$ 1,2 milhão"
+    }
+  },
+  {
+    "document_file": "industria-lumina.md",
+    "expected": {
+      "company_name": "Indústria Lumina S.A.",
+      "sector": "fabricação de luminárias e componentes de iluminação",
+      "analysis_date": "10/08/2026",
+      "overall_risk_score": 25,
+      "risk_rating": "A",
+      "decision": "approve",
+      "decision_justification": "Aprovação de linha de crédito de até R$ 3,5 milhões com revisão anual.",
+      "confidence": 0.9,
+      "key_metrics": [
+        {"name": "Receita", "value": "156,4 milhões", "unit": "R$", "period": "2025"},
+        {"name": "EBITDA", "value": "24,1 milhões", "unit": "R$", "period": "2025"},
+        {"name": "Liquidez corrente", "value": "2,1", "unit": null, "period": "2025"}
+      ],
+      "financial_health": {
+        "revenue": "156,4 milhões",
+        "net_profit": null,
+        "total_debt": "11,3 milhões",
+        "liquidity_ratio": "2,1",
+        "debt_to_equity": "0,13x"
+      },
+      "credit_factors": [
+        {"factor": "Alavancagem", "assessment": "Dívida/PL de 0,13x, estrutura conservadora", "severity": "low"},
+        {"factor": "Cobertura de juros", "assessment": "Cobertura superior a 12x", "severity": "low"},
+        {"factor": "Exposição cambial", "assessment": "Importação de insumos parcialmente coberta por hedge", "severity": "low"}
+      ],
+      "red_flags": [],
+      "recommended_limit": "R$ 3,5 milhões"
+    }
+  }
+]
