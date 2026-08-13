@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     "Plataforma de inteligência de risco: extração estruturada, RAG e agentes orquestrados para decisões de crédito.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="pt-BR"

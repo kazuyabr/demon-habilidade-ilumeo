@@ -30,8 +30,9 @@ async def admin_user() -> dict:
     )
     yield {"id": user.id, "email": email, "password": "Secret@123", "role": "admin"}
     # cleanup: documents cascade to chunks/extractions; then the user can be dropped
-    from risklens.infrastructure.db.session import SessionFactory
     from sqlalchemy import text
+
+    from risklens.infrastructure.db.session import SessionFactory
 
     async with SessionFactory() as session:
         await session.execute(text("DELETE FROM documents WHERE created_by = :uid"), {"uid": user.id})
