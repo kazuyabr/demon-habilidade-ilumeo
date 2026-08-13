@@ -1,0 +1,94 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  api-lint:
+    name: API · lint/format
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+
+  api-unit:
+    name: API · unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: uv run pytest tests/unit -q
+
+  api-integration:
+    name: API · integration tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: risklens
+          POSTGRES_PASSWORD: risklens
+          POSTGRES_DB: risklens
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U risklens -d risklens"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: uv run alembic upgrade head
+      - run: uv run pytest tests/integration -q
+        env:
+          DATABASE_URL: postgresql+asyncpg://risklens:risklens@127.0.0.1:5432/risklens
+          REDIS_URL: redis://127.0.0.1:6379/0
+
+  web-build:
+    name: Web · typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run build
