@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from risklens.domain.schemas import CreditRiskReport, SCHEMA_REGISTRY
+from risklens.domain.schemas import SCHEMA_REGISTRY, CreditRiskReport
 
 
 def test_registry_has_credit_report() -> None:

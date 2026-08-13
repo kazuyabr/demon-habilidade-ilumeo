@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
 from risklens.core.config import settings
 from risklens.infrastructure.db.models import Base  # noqa: F401  (import registers models)
 from risklens.infrastructure.db.session import Base as _Base

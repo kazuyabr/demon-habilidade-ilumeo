@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-import pytest
 import jwt as pyjwt
+import pytest
 
 from risklens.core.security import create_token, decode_token, hash_password, verify_password
 
