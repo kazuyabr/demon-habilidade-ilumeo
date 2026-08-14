@@ -26,8 +26,16 @@ apps/api/      → FastAPI + worker (arq) + Alembic + testes
 apps/web/      → Next.js 16 (SSR + Route Handlers)
 samples/       → relatórios de exemplo + golden set dos evals
 infra/         → terraform/gcp (referência) · docker-compose.yml na raiz
+docs/          → arquitetura · decisões de design · providers · evals
 .github/       → workflow CI + pull_request_template
 ```
+
+## Documentação
+
+- [docs/architecture.md](docs/architecture.md) — pipeline, monólito modular, ports & adapters, fila async
+- [docs/design.md](docs/design.md) — decisões-chave e trade-offs (worker serial, extração resiliente, 768 dims, PII, idempotência)
+- [docs/providers.md](docs/providers.md) — configuração multi-provider (LM Studio / opencode free / Vertex / OpenAI) e cenários
+- [docs/evals.md](docs/evals.md) — harness de avaliação e resultados medidos
 
 ## Como rodar
 
@@ -55,7 +63,7 @@ docker compose up --build -d
 > A IA é **multi-provider via `.env`/compose**: o default do docker usa **LM Studio local**
 > (confiável/offline). Para **cloud grátis** (`opencode` + `fastembed`, sem chave) ou
 > **produção** (`vertex`/`openai`), edite o bloco `environment` do compose — ver
-> `.vibecoding/docs/15-multi-provider`.
+> [docs/providers.md](docs/providers.md).
 
 ### Opção 2 — App nativo (dev iterativo)
 
