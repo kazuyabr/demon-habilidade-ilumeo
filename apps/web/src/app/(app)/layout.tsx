@@ -3,11 +3,15 @@ import { redirect } from "next/navigation";
 
 import { SessionRefresher } from "@/components/session-refresher";
 import { Sidebar } from "@/components/layout/sidebar";
-import { TOKEN_COOKIE } from "@/lib/api";
+import { REFRESH_TOKEN_COOKIE, TOKEN_COOKIE } from "@/lib/api";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const cookieStore = await cookies();
-  if (!cookieStore.get(TOKEN_COOKIE)) {
+  const hasAccess = Boolean(cookieStore.get(TOKEN_COOKIE));
+  const hasRefresh = Boolean(cookieStore.get(REFRESH_TOKEN_COOKIE));
+  // Stale sessions (pre-refresh-flow) carry only the access token and cannot
+  // self-heal — send them to /login instead of showing an error page.
+  if (!hasAccess || !hasRefresh) {
     redirect("/login");
   }
 
