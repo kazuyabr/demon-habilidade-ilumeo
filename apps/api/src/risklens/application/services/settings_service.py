@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import time
+from uuid import UUID
 
+from risklens.application.services import credential_service
 from risklens.core.config import settings
 from risklens.infrastructure.ai import registry, runtime
 from risklens.infrastructure.ai.llm_provider import build_chat_provider_for
@@ -34,7 +36,16 @@ async def update_settings(updates: dict) -> dict:
 
 
 async def test_chat(provider: str, model: str) -> dict:
-    llm = build_chat_provider_for(provider, model)
+    return await _test(provider, model, base_url=None, api_key=None)
+
+
+async def test_chat_for_user(user_id: UUID, provider: str, model: str) -> dict:
+    base_url, api_key = await credential_service.get_effective_chat_endpoint(user_id, provider)
+    return await _test(provider, model, base_url=base_url, api_key=api_key)
+
+
+async def _test(provider: str, model: str, *, base_url: str | None, api_key: str | None) -> dict:
+    llm = build_chat_provider_for(provider, model, base_url=base_url, api_key=api_key)
     start = time.perf_counter()
     try:
         reply = await llm.complete(

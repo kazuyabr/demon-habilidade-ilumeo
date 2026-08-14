@@ -23,6 +23,19 @@ class UserOut(BaseModel):
     role: str
 
 
+class CredentialSummary(BaseModel):
+    provider: str
+    has_api_key: bool
+    api_key_last4: str | None = None
+    has_base_url: bool
+    updated_at: str | None = None
+
+
+class CredentialUpdate(BaseModel):
+    api_key: str | None = Field(default=None, max_length=500)
+    base_url: str | None = Field(default=None, max_length=2048)
+
+
 class DocumentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

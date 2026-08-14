@@ -54,6 +54,14 @@ registry is tagged with its **protocol** and dispatched to the right adapter:
 `custom` (OpenAI-compatible) remains available for any gateway not mapped in the
 registry — set `LLM_PROVIDER=custom` + `LLM_BASE_URL`/`LLM_API_KEY`.
 
+## Bring Your Own Key (BYOK)
+
+Per-user credentials live in the DB encrypted at rest (AES-256-GCM via
+`CREDENTIALS_ENC_KEY`; dev fallback derives from `JWT_SECRET`). Each user stores their
+own **host + api-key** per provider from the UI and the platform uses them for that
+user's requests (RAG, documents, agent runs). Fields the user does not set fall back to
+the deployment env. Secrets are never returned by the API — only the last 4 characters.
+
 ## Honest caveat: free tiers
 
 The OpenCode Zen free tier is genuinely free (the `mimo-v2.5-free` model is cost 0) and
