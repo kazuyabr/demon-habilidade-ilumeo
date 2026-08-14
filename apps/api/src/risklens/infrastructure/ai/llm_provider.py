@@ -1,18 +1,34 @@
-"""LLM provider adapters behind the ``LLMProvider`` port.
+"""Provider adapters behind the ``LLMProvider`` and ``EmbeddingProvider`` ports.
 
-``OpenAICompatibleProvider`` talks to any OpenAI-compatible endpoint
-(LM Studio, Ollama /v1, OpenAI, Groq, vLLM). ``AnthropicProvider`` is the
-non-compatible alternative. The factory picks by ``LLM_PROVIDER`` env var —
-providers are interchangeable without touching application code.
+Chat and embeddings are **decoupled**: ``LLM_PROVIDER`` picks the generator,
+``EMBEDDING_PROVIDER`` picks the embedder — RAG can use a keyless/self-hosted
+embedder (fastembed) while chat uses OpenCode Zen (free) or any cloud provider.
+
+Chat adapters
+  - OpenAICompatibleProvider  (OpenCode Zen, OpenAI, Groq, Google Gemini,
+                               LM Studio, Ollama, vLLM, any OpenAI-compatible API)
+  - AnthropicProvider         (Anthropic Messages API)
+  - VertexProvider            (Google Vertex AI via google-genai, GCP-native)
+
+Embedding adapters
+  - OpenAICompatibleEmbeddings (OpenAI text-embedding-3-small @768, LM Studio nomic)
+  - FastEmbedProvider          (self-hosted ONNX, keyless, 768 dims)
+  - VertexProvider             (text-embedding-005 @768)
+
+All embedding models produce 768 dims on purpose — pgvector stays vector(768).
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+
 from openai import AsyncOpenAI
 from opentelemetry import trace
 
-from risklens.application.ports import LLMProvider
+from risklens.application.ports import EmbeddingProvider, LLMProvider
 from risklens.core.config import settings
+from risklens.infrastructure.ai import registry
 
 _tracer = trace.get_tracer("risklens.ai")
 
@@ -20,11 +36,8 @@ _tracer = trace.get_tracer("risklens.ai")
 class _BaseProvider:
     model: str
 
-    async def _span(
-        self, name: str, *, system: str | None = None, user: str | None = None
-    ) -> trace.Span:
+    async def _span(self, name: str, *, system: str | None = None, user: str | None = None) -> trace.Span:
         span = _tracer.start_span(name)
-        span.set_attribute("gen_ai.system", "llm")
         span.set_attribute("gen_ai.request.model", self.model)
         if system:
             span.set_attribute("gen_ai.prompt.system", system[:2000])
@@ -33,14 +46,20 @@ class _BaseProvider:
         return span
 
 
-class OpenAICompatibleProvider(_BaseProvider):
-    """Works with LM Studio, Ollama, OpenAI, Groq, vLLM, etc."""
+# ---------------------------------------------------------------------------
+# Chat
+# ---------------------------------------------------------------------------
 
-    def __init__(self, *, base_url: str, api_key: str, model: str, embedding_model: str):
+
+class OpenAICompatibleProvider(_BaseProvider):
+    """OpenAI-compatible chat: OpenCode Zen, OpenAI, Groq, Google Gemini,
+    LM Studio, Ollama, vLLM, custom gateways."""
+
+    def __init__(self, *, base_url: str, api_key: str, model: str):
         self.base_url = base_url
         self.model = model
-        self.embedding_model = embedding_model
-        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        # Retry 429/5xx with exponential backoff — free tiers (OpenCode Zen) rate-limit bursts
+        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, max_retries=6, timeout=60.0)
 
     async def complete(
         self,
@@ -62,20 +81,10 @@ class OpenAICompatibleProvider(_BaseProvider):
                 temperature=temperature if temperature is not None else settings.llm_temperature,
             )
             content = resp.choices[0].message.content or ""
-            span.set_attribute("gen_ai.usage.completion_tokens", resp.usage.completion_tokens if resp.usage else 0)
-            span.set_attribute("gen_ai.usage.prompt_tokens", resp.usage.prompt_tokens if resp.usage else 0)
+            if resp.usage:
+                span.set_attribute("gen_ai.usage.completion_tokens", resp.usage.completion_tokens)
+                span.set_attribute("gen_ai.usage.prompt_tokens", resp.usage.prompt_tokens)
             return content
-        finally:
-            span.end()
-
-    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        span = _tracer.start_span("llm.embed")
-        span.set_attribute("gen_ai.request.model", self.embedding_model)
-        try:
-            resp = await self._client.embeddings.create(model=self.embedding_model, input=texts)
-            # Preserve input order (LM Studio may return in arbitrary order)
-            by_index = {d.index: d.embedding for d in resp.data}
-            return [by_index[i] for i in range(len(texts))]
         finally:
             span.end()
 
@@ -83,11 +92,10 @@ class OpenAICompatibleProvider(_BaseProvider):
 class AnthropicProvider(_BaseProvider):
     """Anthropic Messages API (non-OpenAI-compatible)."""
 
-    def __init__(self, *, api_key: str, model: str, embedding_model: str):
+    def __init__(self, *, api_key: str, model: str):
         from anthropic import AsyncAnthropic
 
         self.model = model
-        self.embedding_model = embedding_model
         self._client = AsyncAnthropic(api_key=api_key)
 
     async def complete(
@@ -111,21 +119,224 @@ class AnthropicProvider(_BaseProvider):
         finally:
             span.end()
 
+
+class VertexProvider(_BaseProvider):
+    """Google Vertex AI (enterprise/GCP) — chat (Gemini) + embeddings, via google-genai.
+
+    Auth: VERTEX_API_KEY when set; otherwise Application Default Credentials
+    (Workload Identity in Cloud Run). Requires the Vertex AI API enabled.
+    """
+
+    def __init__(
+        self,
+        *,
+        project: str,
+        region: str,
+        api_key: str,
+        model: str,
+        embedding_model: str,
+        dims: int,
+    ):
+        self.project = project
+        self.region = region
+        self.api_key = api_key
+        self.model = model
+        self.embedding_model = embedding_model
+        self.dims = dims
+        self._client = None
+
+    def _get(self):
+        if self._client is None:
+            from google import genai
+
+            kwargs = {"vertexai": True, "project": self.project, "location": self.region}
+            if self.api_key:
+                kwargs["api_key"] = self.api_key
+            self._client = genai.Client(**kwargs)
+        return self._client
+
+    async def complete(
+        self,
+        *,
+        system: str,
+        user: str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
+        from google.genai import types
+
+        client = self._get()
+        span = await self._span("llm.complete", system=system, user=user)
+        try:
+            resp = await client.aio.models.generate_content(
+                model=self.model,
+                contents=user,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    max_output_tokens=max_tokens or settings.llm_max_tokens,
+                    temperature=temperature if temperature is not None else settings.llm_temperature,
+                ),
+            )
+            return resp.text or ""
+        finally:
+            span.end()
+
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        raise NotImplementedError("Anthropic has no embeddings endpoint; use a compatible provider.")
+        from google.genai import types
+
+        client = self._get()
+        span = _tracer.start_span("llm.embed")
+        span.set_attribute("gen_ai.request.model", self.embedding_model)
+        try:
+            resp = await client.aio.models.embed_content(
+                model=self.embedding_model,
+                contents=texts,
+                config=types.EmbedContentConfig(output_dimensionality=self.dims),
+            )
+            return [list(map(float, e.values)) for e in resp.embeddings]
+        finally:
+            span.end()
 
 
-def build_llm_provider() -> LLMProvider:
+# ---------------------------------------------------------------------------
+# Embeddings
+# ---------------------------------------------------------------------------
+
+
+class OpenAICompatibleEmbeddings:
+    """OpenAI-compatible embeddings. ``dims`` (optional) forwards the OpenAI
+    ``dimensions`` parameter so text-embedding-3-small can emit exactly 768
+    dims; local servers (LM Studio/Ollama) ignore it and already return 768."""
+
+    def __init__(self, *, base_url: str, api_key: str, model: str, dims: int | None):
+        self.model = model
+        self.dims = dims
+        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, max_retries=6, timeout=60.0)
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        span = _tracer.start_span("llm.embed")
+        span.set_attribute("gen_ai.request.model", self.model)
+        try:
+            kwargs = {"model": self.model, "input": texts}
+            if self.dims:
+                kwargs["dimensions"] = self.dims
+            resp = await self._client.embeddings.create(**kwargs)
+            by_index = {d.index: d.embedding for d in resp.data}
+            return [by_index[i] for i in range(len(texts))]
+        finally:
+            span.end()
+
+
+class FastEmbedProvider:
+    """Self-hosted embeddings (ONNX via fastembed) — keyless, free, runs in the
+    container. Model is downloaded on first use into the HF cache."""
+
+    def __init__(self, *, model: str, dims: int):
+        self.model = model
+        self.dims = dims
+        self._embedding = None
+
+    def _get(self):
+        if self._embedding is None:
+            from fastembed import TextEmbedding
+
+            self._embedding = TextEmbedding(model_name=self.model)
+        return self._embedding
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        span = _tracer.start_span("llm.embed")
+        span.set_attribute("gen_ai.request.model", self.model)
+        try:
+            embedder = self._get()
+            vectors = await asyncio.to_thread(lambda: list(embedder.embed(texts)))
+            return [list(map(float, v)) for v in vectors]
+        finally:
+            span.end()
+
+
+# ---------------------------------------------------------------------------
+# Endpoint mapping
+# ---------------------------------------------------------------------------
+
+_CHAT_ENDPOINTS: dict[str, tuple[str | None, str | None]] = {
+    "opencode": ("https://opencode.ai/zen/v1", "opencode_api_key"),
+    "openai": ("https://api.openai.com/v1", "openai_api_key"),
+    "groq": ("https://api.groq.com/openai/v1", "groq_api_key"),
+    "google": ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini_api_key"),
+    "lmstudio": (None, None),  # base_url = LM_STUDIO_BASE_URL, dummy key
+    "ollama": ("http://127.0.0.1:11434/v1", None),
+}
+
+_EMBED_ENDPOINTS: dict[str, tuple[str | None, str | None, int | None]] = {
+    "openai": ("https://api.openai.com/v1", "openai_api_key", 768),
+    "lmstudio": (None, None, None),
+    "ollama": ("http://127.0.0.1:11434/v1", None, None),
+}
+
+
+def _resolve_chat_endpoint(provider: str) -> tuple[str, str]:
+    if provider in _CHAT_ENDPOINTS:
+        base, key_field = _CHAT_ENDPOINTS[provider]
+        base_url = base or settings.lm_studio_base_url
+        api_key = getattr(settings, key_field) if key_field else "lm-studio"
+        return base_url, api_key
+    return settings.llm_base_url, settings.llm_api_key  # custom
+
+
+def _resolve_embed_endpoint(provider: str) -> tuple[str, str, int | None]:
+    if provider in _EMBED_ENDPOINTS:
+        base, key_field, dims = _EMBED_ENDPOINTS[provider]
+        base_url = base or settings.lm_studio_base_url
+        api_key = getattr(settings, key_field) if key_field else "lm-studio"
+        return base_url, api_key, dims
+    return settings.embedding_base_url, settings.embedding_api_key, settings.embedding_dims
+
+
+# ---------------------------------------------------------------------------
+# Factories (env-driven)
+# ---------------------------------------------------------------------------
+
+
+def build_chat_provider() -> LLMProvider:
     provider = settings.llm_provider.lower()
+    with contextlib.suppress(ValueError):
+        registry.require_chat_model(provider, settings.llm_model)
+
     if provider == "anthropic":
         return AnthropicProvider(
-            api_key=settings.llm_api_key,
+            api_key=settings.anthropic_api_key or settings.llm_api_key,
             model=settings.llm_model,
-            embedding_model=settings.llm_embedding_model,
         )
-    return OpenAICompatibleProvider(
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
-        model=settings.llm_model,
-        embedding_model=settings.llm_embedding_model,
+    if provider == "vertex":
+        return VertexProvider(
+            project=settings.vertex_project,
+            region=settings.vertex_region,
+            api_key=settings.vertex_api_key,
+            model=settings.llm_model,
+            embedding_model=settings.embedding_model,
+            dims=settings.embedding_dims,
+        )
+    base_url, api_key = _resolve_chat_endpoint(provider)
+    return OpenAICompatibleProvider(base_url=base_url, api_key=api_key, model=settings.llm_model)
+
+
+def build_embedding_provider() -> EmbeddingProvider:
+    provider = settings.embedding_provider.lower()
+    with contextlib.suppress(ValueError):
+        registry.require_embedding_model(provider, settings.embedding_model, dims=settings.embedding_dims)
+
+    if provider == "fastembed":
+        return FastEmbedProvider(model=settings.embedding_model, dims=settings.embedding_dims)
+    if provider == "vertex":
+        return VertexProvider(
+            project=settings.vertex_project,
+            region=settings.vertex_region,
+            api_key=settings.vertex_api_key,
+            model=settings.llm_model,
+            embedding_model=settings.embedding_model,
+            dims=settings.embedding_dims,
+        )
+    base_url, api_key, dims = _resolve_embed_endpoint(provider)
+    return OpenAICompatibleEmbeddings(
+        base_url=base_url, api_key=api_key, model=settings.embedding_model, dims=dims
     )

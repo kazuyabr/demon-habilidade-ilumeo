@@ -13,7 +13,8 @@ from risklens.domain.entities import ChunkInput, RetrievedChunk
 
 
 class LLMProvider(Protocol):
-    """Adapters: OpenAI-compatible (LM Studio/Ollama/OpenAI/Groq), Anthropic."""
+    """Chat adapter. Implementations: OpenAI-compatible (LM Studio/Ollama/OpenAI/
+    Groq/OpenCode Zen/Google Gemini/Vertex) and Anthropic."""
 
     async def complete(
         self,
@@ -23,6 +24,14 @@ class LLMProvider(Protocol):
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> str: ...
+
+    @property
+    def model(self) -> str: ...
+
+
+class EmbeddingProvider(Protocol):
+    """Embedding adapter — decoupled from the chat provider so RAG can use a
+    different (e.g. keyless/self-hosted) embedder than the generator."""
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]: ...
 

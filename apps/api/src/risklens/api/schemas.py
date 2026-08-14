@@ -122,3 +122,18 @@ class FeatureFlagsOut(BaseModel):
     eval_llm_judge: bool
     llm_model: str
     llm_provider: str
+    embedding_model: str
+    embedding_provider: str
+    embedding_dims: int
+
+
+class ActiveProviderOut(BaseModel):
+    provider: str
+    model: str
+    dims: int | None = None
+
+
+class ProvidersOut(BaseModel):
+    providers: list[dict]
+    active_chat: ActiveProviderOut
+    active_embeddings: ActiveProviderOut

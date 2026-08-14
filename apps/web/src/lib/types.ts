@@ -94,6 +94,9 @@ export interface FeatureFlags {
   eval_llm_judge: boolean;
   llm_model: string;
   llm_provider: string;
+  embedding_model: string;
+  embedding_provider: string;
+  embedding_dims: number;
 }
 
 export const STATUS_COLORS: Record<string, string> = {

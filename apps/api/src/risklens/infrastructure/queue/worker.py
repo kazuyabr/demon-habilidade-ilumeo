@@ -21,7 +21,7 @@ from risklens.application.services.eval_service import run_eval
 from risklens.application.services.extraction_service import extract_from_text
 from risklens.application.services.indexing_service import index_document
 from risklens.core.config import settings
-from risklens.infrastructure.ai.llm_provider import build_llm_provider
+from risklens.infrastructure.ai.llm_provider import build_chat_provider, build_embedding_provider
 from risklens.infrastructure.cache.redis import redis_client
 from risklens.infrastructure.db import repository as repo
 from risklens.infrastructure.storage.fs_storage import FsDocumentStorage
@@ -58,6 +58,7 @@ async def process_document(ctx: dict, document_id: str) -> dict:
 
     await repo.update_document_status(run_id, status="processing")
     llm = ctx["llm"]
+    embedder = ctx["embedder"]
 
     try:
         _, text = await _read_document_text(run_id)
@@ -74,7 +75,7 @@ async def process_document(ctx: dict, document_id: str) -> dict:
             confidence=confidence,
         )
 
-        n_chunks = await index_document(llm, vector_store, document_id=run_id, text=text)
+        n_chunks = await index_document(embedder, vector_store, document_id=run_id, text=text)
         await repo.update_document_status(run_id, status="completed")
         return {"status": "completed", "chunks": n_chunks, "confidence": confidence}
     except Exception as exc:  # noqa: BLE001 - worker must mark failure, not die
@@ -88,11 +89,12 @@ async def process_document(ctx: dict, document_id: str) -> dict:
 
 async def run_agent_job(ctx: dict, run_id: str) -> dict:
     llm = ctx["llm"]
+    embedder = ctx["embedder"]
     run = await repo.get_agent_run(UUID(run_id))
     if run is None:
         return {"status": "not_found"}
     try:
-        result = await execute_agent(llm, vector_store, run_id=run.id, question=run.question)
+        result = await execute_agent(llm, embedder, vector_store, run_id=run.id, question=run.question)
         return {"status": "completed", "result": result}
     except Exception as exc:  # noqa: BLE001
         logger.exception("agent run %s failed", run_id)
@@ -115,7 +117,8 @@ async def run_eval_job(ctx: dict, run_id: str) -> dict:
 
 
 async def startup(ctx: dict) -> None:
-    ctx["llm"] = build_llm_provider()
+    ctx["llm"] = build_chat_provider()
+    ctx["embedder"] = build_embedding_provider()
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
 
 

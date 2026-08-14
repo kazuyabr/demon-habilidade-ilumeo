@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from risklens.application.ports import LLMProvider, VectorStore
+from risklens.application.ports import EmbeddingProvider, LLMProvider, VectorStore
 from risklens.core.config import settings
 from risklens.domain.entities import AgentStep
 from risklens.infrastructure.ai.json_utils import parse_json_output
@@ -50,6 +50,7 @@ async def _json_call(llm: LLMProvider, *, system: str, user: str) -> dict:
 
 async def execute_agent(
     llm: LLMProvider,
+    embedder: EmbeddingProvider,
     vector_store: VectorStore,
     *,
     run_id: UUID,
@@ -81,7 +82,7 @@ async def execute_agent(
     # 2) gather
     evidence: dict[str, dict] = {}
     for sub in sub_queries:
-        embedding = (await llm.embed_texts([sub]))[0]
+        embedding = (await embedder.embed_texts([sub]))[0]
         chunks = await vector_store.search(
             embedding,
             query_text=sub,

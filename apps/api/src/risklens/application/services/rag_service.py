@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from risklens.application.ports import LLMProvider, VectorStore
+from risklens.application.ports import EmbeddingProvider, LLMProvider, VectorStore
 from risklens.core.config import settings
 from risklens.domain.entities import RetrievedChunk
 
@@ -40,12 +40,13 @@ def _format_context(chunks: list[RetrievedChunk]) -> tuple[str, list[dict]]:
 
 async def ask(
     llm: LLMProvider,
+    embedder: EmbeddingProvider,
     vector_store: VectorStore,
     *,
     question: str,
     document_id: UUID | None = None,
 ) -> dict:
-    embedding = (await llm.embed_texts([question]))[0]
+    embedding = (await embedder.embed_texts([question]))[0]
     chunks = await vector_store.search(
         embedding,
         query_text=question,
