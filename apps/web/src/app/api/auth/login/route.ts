@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { BACKEND_URL, TOKEN_COOKIE } from "@/lib/api";
+import { BACKEND_URL, REFRESH_TOKEN_COOKIE, TOKEN_COOKIE, authCookieOptions } from "@/lib/api";
 
 export async function POST(req: Request) {
   const { email, password } = await req.json();
@@ -19,14 +19,8 @@ export async function POST(req: Request) {
   }
 
   const response = NextResponse.json(payload);
-  response.cookies.set({
-    name: TOKEN_COOKIE,
-    value: payload.access_token,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 12,
-  });
+  const opts = authCookieOptions();
+  response.cookies.set({ ...opts, name: TOKEN_COOKIE, value: payload.access_token });
+  response.cookies.set({ ...opts, name: REFRESH_TOKEN_COOKIE, value: payload.refresh_token });
   return response;
 }
