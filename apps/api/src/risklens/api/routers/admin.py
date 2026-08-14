@@ -1,11 +1,20 @@
-"""Admin routes: feature flags + multi-provider registry for the UI."""
+"""Admin routes: feature flags, multi-provider registry and runtime settings."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from risklens.api.deps import get_current_user
-from risklens.api.schemas import ActiveProviderOut, FeatureFlagsOut, ProvidersOut
+from risklens.api.deps import get_current_user, require_roles
+from risklens.api.schemas import (
+    ActiveProviderOut,
+    FeatureFlagsOut,
+    ProvidersOut,
+    SettingsOut,
+    SettingsTestIn,
+    SettingsTestOut,
+    SettingsUpdate,
+)
+from risklens.application.services.settings_service import get_settings, test_chat, update_settings
 from risklens.core.config import settings
 from risklens.infrastructure.ai.registry import get_registry
 from risklens.infrastructure.db.models import User
@@ -38,3 +47,27 @@ async def get_providers(_: User = Depends(get_current_user)) -> ProvidersOut:
             dims=settings.embedding_dims,
         ),
     )
+
+
+@router.get("/settings", response_model=SettingsOut)
+async def get_app_settings(_: User = Depends(get_current_user)) -> SettingsOut:
+    return SettingsOut(**await get_settings())
+
+
+@router.put("/settings", response_model=SettingsOut)
+async def put_app_settings(
+    body: SettingsUpdate,
+    _: User = Depends(require_roles("admin", "analyst")),
+) -> SettingsOut:
+    try:
+        return SettingsOut(**await update_settings(body.model_dump(exclude_unset=True)))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@router.post("/settings/test", response_model=SettingsTestOut)
+async def post_settings_test(
+    body: SettingsTestIn,
+    _: User = Depends(require_roles("admin", "analyst")),
+) -> SettingsTestOut:
+    return SettingsTestOut(**await test_chat(body.provider, body.model))

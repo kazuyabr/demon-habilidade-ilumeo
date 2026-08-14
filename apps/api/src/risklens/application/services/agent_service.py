@@ -21,8 +21,8 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from risklens.application.ports import EmbeddingProvider, LLMProvider, VectorStore
-from risklens.core.config import settings
 from risklens.domain.entities import AgentStep
+from risklens.infrastructure.ai import runtime
 from risklens.infrastructure.ai.json_utils import parse_json_output
 from risklens.infrastructure.cache.redis import channel_for_agent, redis_client
 from risklens.infrastructure.db import repository as repo
@@ -80,14 +80,15 @@ async def execute_agent(
     )
 
     # 2) gather
+    cfg = runtime.get_cached_config()
     evidence: dict[str, dict] = {}
     for sub in sub_queries:
         embedding = (await embedder.embed_texts([sub]))[0]
         chunks = await vector_store.search(
             embedding,
             query_text=sub,
-            hybrid=settings.ff_rag_hybrid_search,
-            limit=4,
+            hybrid=bool(cfg["rag_hybrid"]),
+            limit=int(cfg["top_k"]),
         )
         for c in chunks:
             key = f"{c.document_id}:{c.content[:100]}"
@@ -135,7 +136,7 @@ async def execute_agent(
     )
 
     # 4) review (feature flag)
-    if settings.ff_agent_review_enabled:
+    if cfg["ff_agent_review_enabled"]:
         review = await _json_call(
             llm,
             system=(

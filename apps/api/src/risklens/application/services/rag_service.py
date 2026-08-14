@@ -10,8 +10,8 @@ from __future__ import annotations
 from uuid import UUID
 
 from risklens.application.ports import EmbeddingProvider, LLMProvider, VectorStore
-from risklens.core.config import settings
 from risklens.domain.entities import RetrievedChunk
+from risklens.infrastructure.ai import runtime
 
 MAX_CONTEXT_CHARS = 8000
 
@@ -47,11 +47,12 @@ async def ask(
     document_id: UUID | None = None,
 ) -> dict:
     embedding = (await embedder.embed_texts([question]))[0]
+    cfg = runtime.get_cached_config()
     chunks = await vector_store.search(
         embedding,
         query_text=question,
-        hybrid=settings.ff_rag_hybrid_search,
-        limit=6,
+        hybrid=bool(cfg["rag_hybrid"]),
+        limit=int(cfg["top_k"]),
         document_id=str(document_id) if document_id else None,
     )
 

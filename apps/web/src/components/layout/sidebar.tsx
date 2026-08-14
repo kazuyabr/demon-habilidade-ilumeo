@@ -9,6 +9,7 @@ import {
   MessageSquareText,
   Bot,
   FlaskConical,
+  Settings,
   LogOut,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ const NAV = [
   { href: "/ask", label: "Perguntar (RAG)", icon: MessageSquareText },
   { href: "/agents", label: "Agentes", icon: Bot },
   { href: "/evals", label: "Evals", icon: FlaskConical },
+  { href: "/settings", label: "Configurações", icon: Settings },
 ];
 
 export function Sidebar() {

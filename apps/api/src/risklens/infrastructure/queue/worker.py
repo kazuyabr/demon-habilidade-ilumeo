@@ -21,6 +21,7 @@ from risklens.application.services.eval_service import run_eval
 from risklens.application.services.extraction_service import extract_from_text
 from risklens.application.services.indexing_service import index_document
 from risklens.core.config import settings
+from risklens.infrastructure.ai import runtime
 from risklens.infrastructure.ai.llm_provider import build_chat_provider, build_embedding_provider
 from risklens.infrastructure.cache.redis import redis_client
 from risklens.infrastructure.db import repository as repo
@@ -47,6 +48,16 @@ async def _read_document_text(document_id: UUID) -> tuple[str, str]:
     return doc.content_type, text
 
 
+async def _providers(ctx: dict) -> tuple[object, object]:
+    """Rebuild LLM/embedder lazily when the runtime config version changes."""
+    version = await runtime.get_config_version()
+    if ctx.get("_cfg_version") != version:
+        ctx["llm"] = build_chat_provider()
+        ctx["embedder"] = build_embedding_provider()
+        ctx["_cfg_version"] = version
+    return ctx["llm"], ctx["embedder"]
+
+
 async def process_document(ctx: dict, document_id: str) -> dict:
     """Ingestion pipeline: extract → redact → index. Idempotent by document id."""
     run_id = UUID(document_id)
@@ -57,8 +68,7 @@ async def process_document(ctx: dict, document_id: str) -> dict:
         return {"status": "already_processed"}
 
     await repo.update_document_status(run_id, status="processing")
-    llm = ctx["llm"]
-    embedder = ctx["embedder"]
+    llm, embedder = await _providers(ctx)
 
     try:
         _, text = await _read_document_text(run_id)
@@ -88,8 +98,7 @@ async def process_document(ctx: dict, document_id: str) -> dict:
 
 
 async def run_agent_job(ctx: dict, run_id: str) -> dict:
-    llm = ctx["llm"]
-    embedder = ctx["embedder"]
+    llm, embedder = await _providers(ctx)
     run = await repo.get_agent_run(UUID(run_id))
     if run is None:
         return {"status": "not_found"}
@@ -117,8 +126,10 @@ async def run_eval_job(ctx: dict, run_id: str) -> dict:
 
 
 async def startup(ctx: dict) -> None:
+    await runtime.load_effective_config()
     ctx["llm"] = build_chat_provider()
     ctx["embedder"] = build_embedding_provider()
+    ctx["_cfg_version"] = await runtime.get_config_version()
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
 
 
