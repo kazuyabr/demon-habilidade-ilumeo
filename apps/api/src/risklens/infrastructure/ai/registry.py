@@ -1,15 +1,22 @@
 """Provider registry (models.dev-style) — the single source of truth for
 which providers/models the platform can talk to.
 
-Mirrors the pattern the AI SDK registry (models.dev) uses: a curated list of
-providers with their OpenAI-compatible endpoints, env keys, chat models and
-embedding models. The admin API exposes it (``/api/v1/admin/providers``) so the
-UI can list options; the factories in ``llm_provider.py`` validate against it.
+Each model is tagged with the API **protocol** it speaks, per the OpenCode docs:
+- ``chat``      → OpenAI-compatible  ``POST /v1/chat/completions``
+- ``responses`` → OpenAI Responses   ``POST /v1/responses``
+- ``messages``  → Anthropic Messages ``POST /v1/messages``
+- ``google``    → Gemini             ``POST /models/{id}:generateContent``
+
+The admin API exposes it (``/api/v1/admin/providers``); the factories in
+``llm_provider.py`` dispatch to the right adapter by (provider, model).
+``custom`` is a generic OpenAI-compatible provider for unmapped gateways.
 """
 
 from __future__ import annotations
 
 from typing import TypedDict
+
+Protocol = str  # chat | responses | messages | google
 
 
 class ModelInfo(TypedDict):
@@ -17,6 +24,7 @@ class ModelInfo(TypedDict):
     label: str
     free: bool
     dims: int | None  # embeddings only
+    protocol: Protocol
 
 
 class ProviderInfo(TypedDict):
@@ -30,8 +38,12 @@ class ProviderInfo(TypedDict):
     embedding_models: list[ModelInfo]
 
 
-def _m(id: str, label: str, *, free: bool = False, dims: int | None = None) -> ModelInfo:
-    return {"id": id, "label": label, "free": free, "dims": dims}
+def _m(id: str, label: str, *, free: bool = False, dims: int | None = None, protocol: Protocol = "chat") -> ModelInfo:
+    return {"id": id, "label": label, "free": free, "dims": dims, "protocol": protocol}
+
+
+def _ms(ids: list[str], protocol: Protocol = "chat") -> list[ModelInfo]:
+    return [_m(i, i, protocol=protocol) for i in ids]
 
 
 PROVIDERS: list[ProviderInfo] = [
@@ -43,11 +55,81 @@ PROVIDERS: list[ProviderInfo] = [
         "chat": True,
         "embeddings": False,
         "chat_models": [
-            _m("mimo-v2.5-free", "MiMo V2.5 (free)", free=True),
-            _m("deepseek-v4-flash-free", "DeepSeek V4 Flash (free)", free=True),
-            _m("glm-4.7-free", "GLM 4.7 (free)", free=True),
-            _m("kimi-k2.5-free", "Kimi K2.5 (free)", free=True),
-            _m("gpt-5-nano", "GPT-5 nano"),
+            # OpenAI-compatible (chat/completions)
+            *_ms(["deepseek-v4-flash", "deepseek-v4-pro"]),
+            _m("deepseek-v4-flash-free", "deepseek-v4-flash-free", free=True),
+            *_ms(["minimax-m3", "minimax-m2.7", "minimax-m2.5"]),
+            *_ms(["glm-5.2", "glm-5.1", "glm-5"]),
+            *_ms(["kimi-k3", "kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5"]),
+            _m("mimo-v2.5-free", "mimo-v2.5-free", free=True),
+            _m("hy3-free", "hy3-free", free=True),
+            _m("laguna-s-2.1-free", "laguna-s-2.1-free", free=True),
+            _m("big-pickle", "big-pickle", free=True),
+            _m("nemotron-3-ultra-free", "nemotron-3-ultra-free", free=True),
+            _m("nemotron-3.5-lightning-free", "nemotron-3.5-lightning-free", free=True),
+            # OpenAI Responses (responses)
+            *_ms(
+                [
+                    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.5-pro",
+                    "gpt-5.4", "gpt-5.4-pro", "gpt-5.4-mini", "gpt-5.4-nano",
+                    "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2", "gpt-5.2-codex",
+                    "gpt-5.1", "gpt-5.1-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini",
+                    "gpt-5", "gpt-5-codex", "gpt-5-nano",
+                    "grok-4.6", "grok-4.5", "grok-build-0.1", "muse-spark-1.2",
+                ],
+                protocol="responses",
+            ),
+            # Anthropic Messages (messages)
+            *_ms(
+                [
+                    "claude-fable-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7",
+                    "claude-opus-4-6", "claude-opus-4-5", "claude-sonnet-5", "claude-sonnet-4-6",
+                    "claude-sonnet-4-5", "claude-haiku-4-5", "qwen3.7-max", "qwen3.7-plus",
+                    "qwen3.6-plus", "qwen3.5-plus",
+                ],
+                protocol="messages",
+            ),
+            # Gemini (google)
+            *_ms(
+                [
+                    "gemini-3.7-flash",
+                    "gemini-3.6-flash",
+                    "gemini-3.5-flash",
+                    "gemini-3.5-flash-lite",
+                    "gemini-3.1-pro",
+                    "gemini-3-flash",
+                ],
+                protocol="google",
+            ),
+        ],
+        "embedding_models": [],
+    },
+    {
+        "id": "opencode-go",
+        "label": "OpenCode Go (assinatura)",
+        "api": "https://opencode.ai/zen/go/v1",
+        "env_key": "OPENCODE_API_KEY",
+        "chat": True,
+        "embeddings": False,
+        "chat_models": [
+            # OpenAI-compatible (chat/completions) — baratos/volumosos, ideais p/ agentes/evals
+            *_ms(["mimo-v2.5", "mimo-v2.5-pro", "deepseek-v4-flash", "deepseek-v4-pro", "hy3"]),
+            *_ms(["glm-5.3", "glm-5.2", "glm-5.1", "kimi-k3", "kimi-k2.7-code", "kimi-k2.6"]),
+            # OpenAI Responses
+            *_ms(["grok-4.5", "gpt-5.6-luna"], protocol="responses"),
+            # Anthropic Messages
+            *_ms(
+                [
+                    "minimax-m3",
+                    "minimax-m2.7",
+                    "minimax-m2.5",
+                    "qwen3.8-max",
+                    "qwen3.7-max",
+                    "qwen3.7-plus",
+                    "qwen3.6-plus",
+                ],
+                protocol="messages",
+            ),
         ],
         "embedding_models": [],
     },
@@ -59,12 +141,10 @@ PROVIDERS: list[ProviderInfo] = [
         "chat": True,
         "embeddings": True,
         "chat_models": [
-            _m("gpt-4o-mini", "GPT-4o mini"),
-            _m("gpt-4o", "GPT-4o"),
+            _m("gpt-4o-mini", "GPT-4o mini", protocol="responses"),
+            _m("gpt-4o", "GPT-4o", protocol="responses"),
         ],
-        "embedding_models": [
-            _m("text-embedding-3-small", "text-embedding-3-small", dims=768),
-        ],
+        "embedding_models": [_m("text-embedding-3-small", "text-embedding-3-small", dims=768)],
     },
     {
         "id": "anthropic",
@@ -74,8 +154,8 @@ PROVIDERS: list[ProviderInfo] = [
         "chat": True,
         "embeddings": False,
         "chat_models": [
-            _m("claude-3-5-haiku-latest", "Claude 3.5 Haiku"),
-            _m("claude-sonnet-4-20250514", "Claude Sonnet 4"),
+            _m("claude-3-5-haiku-latest", "Claude 3.5 Haiku", protocol="messages"),
+            _m("claude-sonnet-4-20250514", "Claude Sonnet 4", protocol="messages"),
         ],
         "embedding_models": [],
     },
@@ -87,7 +167,7 @@ PROVIDERS: list[ProviderInfo] = [
         "chat": True,
         "embeddings": False,
         "chat_models": [
-            _m("gemini-2.0-flash", "Gemini 2.0 Flash"),
+            _m("gemini-2.0-flash", "Gemini 2.0 Flash", protocol="chat"),
         ],
         "embedding_models": [],
     },
@@ -99,8 +179,8 @@ PROVIDERS: list[ProviderInfo] = [
         "chat": True,
         "embeddings": False,
         "chat_models": [
-            _m("llama-3.3-70b-versatile", "Llama 3.3 70B"),
-            _m("qwen-2.5-coder-32b", "Qwen 2.5 Coder 32B"),
+            _m("llama-3.3-70b-versatile", "Llama 3.3 70B", protocol="chat"),
+            _m("qwen-2.5-coder-32b", "Qwen 2.5 Coder 32B", protocol="chat"),
         ],
         "embedding_models": [],
     },
@@ -112,11 +192,9 @@ PROVIDERS: list[ProviderInfo] = [
         "chat": True,
         "embeddings": True,
         "chat_models": [
-            _m("gemini-2.0-flash-001", "Gemini 2.0 Flash"),
+            _m("gemini-2.0-flash-001", "Gemini 2.0 Flash", protocol="google"),
         ],
-        "embedding_models": [
-            _m("text-embedding-005", "text-embedding-005", dims=768),
-        ],
+        "embedding_models": [_m("text-embedding-005", "text-embedding-005", dims=768)],
     },
     {
         "id": "fastembed",
@@ -126,9 +204,7 @@ PROVIDERS: list[ProviderInfo] = [
         "chat": False,
         "embeddings": True,
         "chat_models": [],
-        "embedding_models": [
-            _m("nomic-ai/nomic-embed-text-v1.5", "nomic-embed-text v1.5 (ONNX)", dims=768),
-        ],
+        "embedding_models": [_m("nomic-ai/nomic-embed-text-v1.5", "nomic-embed-text v1.5 (ONNX)", dims=768)],
     },
     {
         "id": "lmstudio",
@@ -137,12 +213,8 @@ PROVIDERS: list[ProviderInfo] = [
         "env_key": "LM_STUDIO_BASE_URL",
         "chat": True,
         "embeddings": True,
-        "chat_models": [
-            _m("google/gemma-3-4b", "Gemma 3 4B (local)"),
-        ],
-        "embedding_models": [
-            _m("text-embedding-nomic-embed-text-v1.5", "nomic-embed-text v1.5", dims=768),
-        ],
+        "chat_models": [_m("google/gemma-3-4b", "Gemma 3 4B (local)", protocol="chat")],
+        "embedding_models": [_m("text-embedding-nomic-embed-text-v1.5", "nomic-embed-text v1.5", dims=768)],
     },
     {
         "id": "ollama",
@@ -151,12 +223,18 @@ PROVIDERS: list[ProviderInfo] = [
         "env_key": "OLLAMA_BASE_URL",
         "chat": True,
         "embeddings": True,
-        "chat_models": [
-            _m("gemma3:4b", "Gemma 3 4B (local)"),
-        ],
-        "embedding_models": [
-            _m("nomic-embed-text", "nomic-embed-text", dims=768),
-        ],
+        "chat_models": [_m("gemma3:4b", "Gemma 3 4B (local)", protocol="chat")],
+        "embedding_models": [_m("nomic-embed-text", "nomic-embed-text", dims=768)],
+    },
+    {
+        "id": "custom",
+        "label": "OpenAI-compatible (custom)",
+        "api": None,  # usa LLM_BASE_URL / EMBEDDING_BASE_URL
+        "env_key": "LLM_BASE_URL / LLM_API_KEY",
+        "chat": True,
+        "embeddings": True,
+        "chat_models": [],  # modelo livre (campo texto na UI)
+        "embedding_models": [],
     },
 ]
 
@@ -170,6 +248,17 @@ def resolve_provider(provider_id: str) -> ProviderInfo:
         if p["id"] == provider_id:
             return p
     raise ValueError(f"provider desconhecido: {provider_id}")
+
+
+def resolve_model_protocol(provider_id: str, model_id: str) -> Protocol:
+    try:
+        provider = resolve_provider(provider_id)
+    except ValueError:
+        return "chat"
+    for model in provider["chat_models"]:
+        if model["id"] == model_id:
+            return model.get("protocol", "chat")
+    return "chat"
 
 
 def require_chat_model(provider_id: str, model_id: str) -> None:

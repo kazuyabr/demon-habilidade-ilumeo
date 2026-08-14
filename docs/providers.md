@@ -34,8 +34,25 @@ Switching providers is a `.env` change; no code changes.
 |---|---|---|---|
 | Offline dev / demo | LM Studio | LM Studio | no keys, no internet, reliable |
 | Cloud free | OpenCode Zen (`mimo-v2.5-free`) | fastembed (self-hosted) | zero cost, no host dependency |
+| **Cloud reliable (paid)** | **OpenCode Go (`deepseek-v4-flash`)** | fastembed (self-hosted) | **flat US$10/mo, no burst rate-limit — great for agents/evals** |
 | Production (GCP) | Vertex (Gemini) | Vertex (`text-embedding-005`) | Workload Identity + Secret Manager |
 | Production (portable) | OpenAI (`gpt-4o-mini`) | OpenAI (`text-embedding-3-small`) | one key, any cloud |
+| Unmapped gateway | `custom` | `custom` | any OpenAI-compatible base URL |
+
+## Per-model protocol (especificação por modelo)
+
+OpenCode Zen/Go expose models through different API shapes, so each model in the
+registry is tagged with its **protocol** and dispatched to the right adapter:
+
+| Protocol | Endpoint | Adapter | Exemplos (Go) |
+|---|---|---|---|
+| `chat` | `/v1/chat/completions` | OpenAI-compatible | `deepseek-v4-flash`, `mimo-v2.5`, `glm-5.x`, `kimi-*`, `hy3` |
+| `responses` | `/v1/responses` | OpenAI Responses API | `grok-4.5`, `gpt-5.6-luna` |
+| `messages` | `/v1/messages` | Anthropic Messages | `qwen3.7-max`, `minimax-m3` |
+| `google` | `/models/{id}:generateContent` | Gemini SDK | `gemini-3.7-flash` (Zen) |
+
+`custom` (OpenAI-compatible) remains available for any gateway not mapped in the
+registry — set `LLM_PROVIDER=custom` + `LLM_BASE_URL`/`LLM_API_KEY`.
 
 ## Honest caveat: free tiers
 

@@ -7,9 +7,12 @@ from risklens.infrastructure.ai import runtime
 from risklens.infrastructure.ai.llm_provider import (
     AnthropicProvider,
     FastEmbedProvider,
+    GoogleGeminiProvider,
     OpenAICompatibleEmbeddings,
     OpenAICompatibleProvider,
+    OpenAIResponsesProvider,
     build_chat_provider,
+    build_chat_provider_for,
     build_embedding_provider,
 )
 
@@ -74,3 +77,44 @@ def test_fastembed_keyless(monkeypatch) -> None:
     provider = build_embedding_provider()
     assert isinstance(provider, FastEmbedProvider)
     assert provider.dims == 768
+
+
+# --- per-model protocol dispatch (OpenCode Go / Zen) ---
+
+
+def test_opencode_go_chat(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "opencode_api_key", "test-key")
+    _set_cfg(monkeypatch, chat_provider="opencode-go", chat_model="mimo-v2.5")
+    p = build_chat_provider()
+    assert isinstance(p, OpenAICompatibleProvider)
+    assert p.base_url == "https://opencode.ai/zen/go/v1"
+
+
+def test_opencode_go_responses(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "opencode_api_key", "test-key")
+    _set_cfg(monkeypatch, chat_provider="opencode-go", chat_model="grok-4.5")
+    assert isinstance(build_chat_provider(), OpenAIResponsesProvider)
+
+
+def test_opencode_go_messages(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "opencode_api_key", "test-key")
+    _set_cfg(monkeypatch, chat_provider="opencode-go", chat_model="qwen3.7-max")
+    p = build_chat_provider()
+    assert isinstance(p, AnthropicProvider)
+    # Anthropic SDK appends /v1/messages → base_url without the /v1 suffix
+    assert str(p._client.base_url).rstrip("/") == "https://opencode.ai/zen/go"
+
+
+def test_opencode_gemini(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "opencode_api_key", "test-key")
+    _set_cfg(monkeypatch, chat_provider="opencode", chat_model="gemini-3.7-flash")
+    assert isinstance(build_chat_provider(), GoogleGeminiProvider)
+
+
+def test_custom_falls_back_to_openai_compatible(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_base_url", "http://gateway.local/v1")
+    monkeypatch.setattr(settings, "llm_api_key", "gw")
+    _set_cfg(monkeypatch, chat_provider="custom", chat_model="qualquer-modelo")
+    p = build_chat_provider_for("custom", "qualquer-modelo")
+    assert isinstance(p, OpenAICompatibleProvider)
+    assert p.base_url == "http://gateway.local/v1"

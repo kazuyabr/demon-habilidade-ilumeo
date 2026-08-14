@@ -47,3 +47,20 @@ def test_require_embedding_model_provider_without_embeddings_raises() -> None:
 def test_resolve_unknown_provider_raises() -> None:
     with pytest.raises(ValueError):
         registry.resolve_provider("nao-existe")
+
+
+def test_resolve_model_protocol() -> None:
+    assert registry.resolve_model_protocol("opencode-go", "mimo-v2.5") == "chat"
+    assert registry.resolve_model_protocol("opencode-go", "grok-4.5") == "responses"
+    assert registry.resolve_model_protocol("opencode-go", "qwen3.7-max") == "messages"
+    assert registry.resolve_model_protocol("opencode", "gemini-3.7-flash") == "google"
+    assert registry.resolve_model_protocol("opencode", "mimo-v2.5-free") == "chat"
+    # unmapped/custom always fall back to OpenAI-compatible
+    assert registry.resolve_model_protocol("custom", "qualquer-modelo") == "chat"
+    assert registry.resolve_model_protocol("opencode-go", "modelo-desconhecido") == "chat"
+
+
+def test_registry_has_custom_and_go() -> None:
+    ids = {p["id"] for p in registry.get_registry()}
+    assert "opencode-go" in ids
+    assert "custom" in ids

@@ -91,13 +91,17 @@ class OpenAICompatibleProvider(_BaseProvider):
 
 
 class AnthropicProvider(_BaseProvider):
-    """Anthropic Messages API (non-OpenAI-compatible)."""
+    """Anthropic Messages API — the provider itself or OpenCode Zen/Go
+    (which expose the same ``/v1/messages`` shape)."""
 
-    def __init__(self, *, api_key: str, model: str):
+    def __init__(self, *, api_key: str, model: str, base_url: str | None = None):
         from anthropic import AsyncAnthropic
 
         self.model = model
-        self._client = AsyncAnthropic(api_key=api_key)
+        kwargs: dict = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        self._client = AsyncAnthropic(**kwargs)
 
     async def complete(
         self,
@@ -201,6 +205,95 @@ class VertexProvider(_BaseProvider):
             span.end()
 
 
+class OpenAIResponsesProvider(_BaseProvider):
+    """OpenAI Responses API (``/v1/responses``) — GPT/Grok-class models on
+    OpenCode Zen/Go expose this shape."""
+
+    def __init__(self, *, base_url: str, api_key: str, model: str):
+        self.model = model
+        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, max_retries=6, timeout=60.0)
+
+    async def complete(
+        self,
+        *,
+        system: str,
+        user: str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
+        span = await self._span("llm.complete", system=system, user=user)
+        try:
+            cfg = runtime.get_cached_config()
+            resp = await self._client.responses.create(
+                model=self.model,
+                input=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                max_output_tokens=max_tokens or cfg["max_tokens"],
+                temperature=temperature if temperature is not None else cfg["temperature"],
+            )
+            if hasattr(resp, "output_text"):
+                return resp.output_text or ""
+            text = ""
+            for item in resp.output or []:
+                if getattr(item, "type", None) == "message":
+                    for c in getattr(item, "content", []) or []:
+                        text += getattr(c, "text", "") or ""
+            return text
+        finally:
+            span.end()
+
+
+class GoogleGeminiProvider(_BaseProvider):
+    """Gemini via the google-genai SDK pointed at a gateway base URL
+    (``/models/{id}:generateContent``) — used by OpenCode Zen Gemini models."""
+
+    def __init__(self, *, base_url: str, api_key: str, model: str):
+        self.model = model
+        self._base_url = base_url
+        self._api_key = api_key
+        self._client = None
+
+    def _get(self):
+        if self._client is None:
+            from google import genai
+            from google.genai import types
+
+            self._client = genai.Client(
+                api_key=self._api_key,
+                http_options=types.HttpOptions(base_url=self._base_url),
+            )
+        return self._client
+
+    async def complete(
+        self,
+        *,
+        system: str,
+        user: str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
+        from google.genai import types
+
+        client = self._get()
+        span = await self._span("llm.complete", system=system, user=user)
+        try:
+            cfg = runtime.get_cached_config()
+            resp = await client.aio.models.generate_content(
+                model=self.model,
+                contents=user,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    max_output_tokens=max_tokens or cfg["max_tokens"],
+                    temperature=temperature if temperature is not None else cfg["temperature"],
+                ),
+            )
+            return resp.text or ""
+        finally:
+            span.end()
+
+
 # ---------------------------------------------------------------------------
 # Embeddings
 # ---------------------------------------------------------------------------
@@ -263,6 +356,7 @@ class FastEmbedProvider:
 
 _CHAT_ENDPOINTS: dict[str, tuple[str | None, str | None]] = {
     "opencode": ("https://opencode.ai/zen/v1", "opencode_api_key"),
+    "opencode-go": ("https://opencode.ai/zen/go/v1", "opencode_api_key"),
     "openai": ("https://api.openai.com/v1", "openai_api_key"),
     "groq": ("https://api.groq.com/openai/v1", "groq_api_key"),
     "google": ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini_api_key"),
@@ -300,35 +394,16 @@ def _resolve_embed_endpoint(provider: str) -> tuple[str, str, int | None]:
 # ---------------------------------------------------------------------------
 
 
-def build_chat_provider() -> LLMProvider:
-    cfg = runtime.get_cached_config()
-    provider = str(cfg["chat_provider"]).lower()
-    model = str(cfg["chat_model"])
-    with contextlib.suppress(ValueError):
-        registry.require_chat_model(provider, model)
-
-    if provider == "anthropic":
-        return AnthropicProvider(
-            api_key=settings.anthropic_api_key or settings.llm_api_key,
-            model=model,
-        )
-    if provider == "vertex":
-        return VertexProvider(
-            project=settings.vertex_project,
-            region=settings.vertex_region,
-            api_key=settings.vertex_api_key,
-            model=model,
-            embedding_model=str(cfg["embedding_model"]),
-            dims=settings.embedding_dims,
-        )
-    base_url, api_key = _resolve_chat_endpoint(provider)
-    return OpenAICompatibleProvider(base_url=base_url, api_key=api_key, model=model)
+def _strip_v1(url: str) -> str:
+    """Anthropic SDK appends '/v1/messages'; strip a trailing /v1 from the
+    provider base so opencode/opencode-go messages endpoints line up."""
+    stripped = url.rstrip("/")
+    if stripped.endswith("/v1"):
+        stripped = stripped[: -len("/v1")]
+    return stripped or url
 
 
-def build_chat_provider_for(provider: str, model: str) -> LLMProvider:
-    """Build a chat provider for an explicit (provider, model) — used by the
-    settings 'test connection' feature without mutating the active config."""
-    provider = provider.lower()
+def _build_chat(provider: str, model: str) -> LLMProvider:
     if provider == "anthropic":
         return AnthropicProvider(
             api_key=settings.anthropic_api_key or settings.llm_api_key,
@@ -343,8 +418,30 @@ def build_chat_provider_for(provider: str, model: str) -> LLMProvider:
             embedding_model=str(runtime.get_cached_config()["embedding_model"]),
             dims=settings.embedding_dims,
         )
+    protocol = registry.resolve_model_protocol(provider, model)
     base_url, api_key = _resolve_chat_endpoint(provider)
+    if protocol == "responses":
+        return OpenAIResponsesProvider(base_url=base_url, api_key=api_key, model=model)
+    if protocol == "messages":
+        return AnthropicProvider(api_key=api_key, model=model, base_url=_strip_v1(base_url))
+    if protocol == "google":
+        return GoogleGeminiProvider(base_url=base_url, api_key=api_key, model=model)
     return OpenAICompatibleProvider(base_url=base_url, api_key=api_key, model=model)
+
+
+def build_chat_provider() -> LLMProvider:
+    cfg = runtime.get_cached_config()
+    provider = str(cfg["chat_provider"]).lower()
+    model = str(cfg["chat_model"])
+    with contextlib.suppress(ValueError):
+        registry.require_chat_model(provider, model)
+    return _build_chat(provider, model)
+
+
+def build_chat_provider_for(provider: str, model: str) -> LLMProvider:
+    """Build a chat provider for an explicit (provider, model) — used by the
+    settings 'test connection' feature without mutating the active config."""
+    return _build_chat(provider.lower(), model)
 
 
 def build_embedding_provider() -> EmbeddingProvider:
