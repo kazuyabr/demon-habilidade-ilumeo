@@ -11,11 +11,13 @@ e um **agente orquestrado** produz análises multi-etapa com citações → um h
 
 - **API**: Python 3.12 · FastAPI (async) · SQLAlchemy 2.0 async · Pydantic v2 · Alembic
 - **DB/vector**: PostgreSQL 16 + pgvector · **Fila/cache**: Redis + arq (worker)
-- **IA**: LM Studio (OpenAI-compatible) — `google/gemma-3-4b` + `text-embedding-nomic-embed-text-v1.5`;
-  camada anticorrupção permite trocar para OpenAI/Anthropic/Ollama via env
+- **IA (multi-provider)**: chat e embeddings **selecionáveis por env** (registry no estilo
+  models.dev). Chat: LM Studio · OpenCode Zen (`mimo-v2.5-free`, grátis) · OpenAI · Anthropic ·
+  Google Gemini · Groq · Vertex. Embeddings: LM Studio · fastembed (self-hosted, sem chave) ·
+  OpenAI · Vertex — todos em **768 dims** (pgvector `vector(768)` inalterado)
 - **Front**: Next.js 16 (App Router, SSR) · Tailwind 4 · shadcn/ui · TanStack Query
 - **Observabilidade**: OpenTelemetry · **Segurança**: OAuth2 + JWT, RBAC, Argon2, PII redaction
-- **Infra**: docker-compose (dev) · Terraform GCP de referência · CI em camadas
+- **Infra**: docker-compose (stack completa: postgres/redis/migrate/seed/api/worker/web) · Terraform GCP de referência · CI em camadas
 
 ## Estrutura
 
@@ -23,7 +25,7 @@ e um **agente orquestrado** produz análises multi-etapa com citações → um h
 apps/api/      → FastAPI + worker (arq) + Alembic + testes
 apps/web/      → Next.js 16 (SSR + Route Handlers)
 samples/       → relatórios de exemplo + golden set dos evals
-infra/         → docker-compose.yml · terraform/gcp (referência)
+infra/         → terraform/gcp (referência) · docker-compose.yml na raiz
 .github/       → workflow CI + pull_request_template
 ```
 
