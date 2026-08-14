@@ -16,6 +16,7 @@ dependencies = [
     "arq>=0.26",
     "openai>=1.58",
     "anthropic>=0.40",
+    "cryptography>=43.0",
     "fastembed>=0.5",
     "google-genai>=1.0",
     "python-multipart>=0.0.18",

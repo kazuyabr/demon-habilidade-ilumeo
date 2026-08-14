@@ -16,6 +16,7 @@ from arq.connections import RedisSettings
 from arq.worker import create_worker
 from pypdf import PdfReader
 
+from risklens.application.services import credential_service
 from risklens.application.services.agent_service import execute_agent
 from risklens.application.services.eval_service import run_eval
 from risklens.application.services.extraction_service import extract_from_text
@@ -58,6 +59,16 @@ async def _providers(ctx: dict) -> tuple[object, object]:
     return ctx["llm"], ctx["embedder"]
 
 
+async def _providers_for(ctx: dict, user_id=None) -> tuple[object, object]:
+    """BYOK: use the aggregate owner's credentials when present, else env."""
+    if user_id is not None:
+        return (
+            await credential_service.build_user_chat_provider(user_id),
+            await credential_service.build_user_embedding_provider(user_id),
+        )
+    return await _providers(ctx)
+
+
 async def process_document(ctx: dict, document_id: str) -> dict:
     """Ingestion pipeline: extract → redact → index. Idempotent by document id."""
     run_id = UUID(document_id)
@@ -68,7 +79,7 @@ async def process_document(ctx: dict, document_id: str) -> dict:
         return {"status": "already_processed"}
 
     await repo.update_document_status(run_id, status="processing")
-    llm, embedder = await _providers(ctx)
+    llm, embedder = await _providers_for(ctx, doc.created_by)
 
     try:
         _, text = await _read_document_text(run_id)
@@ -98,10 +109,10 @@ async def process_document(ctx: dict, document_id: str) -> dict:
 
 
 async def run_agent_job(ctx: dict, run_id: str) -> dict:
-    llm, embedder = await _providers(ctx)
     run = await repo.get_agent_run(UUID(run_id))
     if run is None:
         return {"status": "not_found"}
+    llm, embedder = await _providers_for(ctx, run.created_by)
     try:
         result = await execute_agent(llm, embedder, vector_store, run_id=run.id, question=run.question)
         return {"status": "completed", "result": result}

@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 7
 
+    # --- BYOK credentials (encryption at rest) ---
+    # AES-256 key for per-user provider credentials (base64, 32 bytes).
+    # Falls back to a deterministic derivation from JWT_SECRET in dev.
+    credentials_enc_key: str = Field(default="", repr=False)
+
     # --- Seed ---
     seed_admin_email: str = "admin@risklens.local"
     seed_admin_password: str = "Admin@12345"

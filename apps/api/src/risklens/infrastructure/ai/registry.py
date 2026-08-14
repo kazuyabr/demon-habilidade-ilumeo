@@ -266,6 +266,8 @@ def require_chat_model(provider_id: str, model_id: str) -> None:
     if not p["chat"]:
         raise ValueError(f"provider '{provider_id}' não oferece chat (use fastembed só p/ embeddings)")
     ids = {m["id"] for m in p["chat_models"]}
+    if not ids:
+        return  # free-form provider (e.g. `custom`) — any model id is valid
     if model_id not in ids:
         raise ValueError(f"modelo de chat '{model_id}' não listado para '{provider_id}'")
 
@@ -276,6 +278,8 @@ def require_embedding_model(provider_id: str, model_id: str, *, dims: int) -> No
         raise ValueError(
             f"provider '{provider_id}' não oferece embeddings — use openai/lmstudio/fastembed/vertex"
         )
+    if not p["embedding_models"]:
+        return  # free-form provider (e.g. `custom`)
     for m in p["embedding_models"]:
         if m["id"] == model_id:
             expected = m["dims"]

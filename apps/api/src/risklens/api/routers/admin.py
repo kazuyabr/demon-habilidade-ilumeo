@@ -14,7 +14,11 @@ from risklens.api.schemas import (
     SettingsTestOut,
     SettingsUpdate,
 )
-from risklens.application.services.settings_service import get_settings, test_chat, update_settings
+from risklens.application.services.settings_service import (
+    get_settings,
+    test_chat_for_user,
+    update_settings,
+)
 from risklens.core.config import settings
 from risklens.infrastructure.ai.registry import get_registry
 from risklens.infrastructure.db.models import User
@@ -68,6 +72,7 @@ async def put_app_settings(
 @router.post("/settings/test", response_model=SettingsTestOut)
 async def post_settings_test(
     body: SettingsTestIn,
-    _: User = Depends(require_roles("admin", "analyst")),
+    user: User = Depends(require_roles("admin", "analyst")),
 ) -> SettingsTestOut:
-    return SettingsTestOut(**await test_chat(body.provider, body.model))
+    # BYOK: test using the requesting user's credentials (env fallback)
+    return SettingsTestOut(**await test_chat_for_user(user.id, body.provider, body.model))

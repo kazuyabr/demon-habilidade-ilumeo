@@ -371,7 +371,7 @@ _EMBED_ENDPOINTS: dict[str, tuple[str | None, str | None, int | None]] = {
 }
 
 
-def _resolve_chat_endpoint(provider: str) -> tuple[str, str]:
+def resolve_chat_endpoint(provider: str) -> tuple[str, str]:
     if provider in _CHAT_ENDPOINTS:
         base, key_field = _CHAT_ENDPOINTS[provider]
         base_url = base or settings.lm_studio_base_url
@@ -380,7 +380,7 @@ def _resolve_chat_endpoint(provider: str) -> tuple[str, str]:
     return settings.llm_base_url, settings.llm_api_key  # custom
 
 
-def _resolve_embed_endpoint(provider: str) -> tuple[str, str, int | None]:
+def resolve_embed_endpoint(provider: str) -> tuple[str, str, int | None]:
     if provider in _EMBED_ENDPOINTS:
         base, key_field, dims = _EMBED_ENDPOINTS[provider]
         base_url = base or settings.lm_studio_base_url
@@ -403,10 +403,16 @@ def _strip_v1(url: str) -> str:
     return stripped or url
 
 
-def _build_chat(provider: str, model: str) -> LLMProvider:
+def _build_chat(
+    provider: str,
+    model: str,
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> LLMProvider:
     if provider == "anthropic":
         return AnthropicProvider(
-            api_key=settings.anthropic_api_key or settings.llm_api_key,
+            api_key=api_key or settings.anthropic_api_key or settings.llm_api_key,
             model=model,
         )
     if provider == "vertex":
@@ -419,7 +425,9 @@ def _build_chat(provider: str, model: str) -> LLMProvider:
             dims=settings.embedding_dims,
         )
     protocol = registry.resolve_model_protocol(provider, model)
-    base_url, api_key = _resolve_chat_endpoint(provider)
+    env_base, env_key = resolve_chat_endpoint(provider)
+    base_url = base_url or env_base
+    api_key = api_key or env_key
     if protocol == "responses":
         return OpenAIResponsesProvider(base_url=base_url, api_key=api_key, model=model)
     if protocol == "messages":
@@ -438,10 +446,46 @@ def build_chat_provider() -> LLMProvider:
     return _build_chat(provider, model)
 
 
-def build_chat_provider_for(provider: str, model: str) -> LLMProvider:
+def build_chat_provider_for(
+    provider: str,
+    model: str,
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> LLMProvider:
     """Build a chat provider for an explicit (provider, model) — used by the
-    settings 'test connection' feature without mutating the active config."""
-    return _build_chat(provider.lower(), model)
+    settings 'test connection' and BYOK flows. ``base_url``/``api_key``
+    override the env defaults when provided (per-user credentials)."""
+    return _build_chat(provider.lower(), model, base_url=base_url, api_key=api_key)
+
+
+def build_embedding_provider_for(
+    provider: str,
+    model: str,
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> EmbeddingProvider:
+    """Build an embedding provider with optional per-user overrides."""
+    provider = provider.lower()
+    if provider == "fastembed":
+        return FastEmbedProvider(model=model, dims=settings.embedding_dims)
+    if provider == "vertex":
+        return VertexProvider(
+            project=settings.vertex_project,
+            region=settings.vertex_region,
+            api_key=settings.vertex_api_key,
+            model=str(runtime.get_cached_config()["chat_model"]),
+            embedding_model=model,
+            dims=settings.embedding_dims,
+        )
+    env_base, env_key, dims = resolve_embed_endpoint(provider)
+    return OpenAICompatibleEmbeddings(
+        base_url=base_url or env_base,
+        api_key=api_key or env_key,
+        model=model,
+        dims=dims,
+    )
 
 
 def build_embedding_provider() -> EmbeddingProvider:
@@ -462,7 +506,7 @@ def build_embedding_provider() -> EmbeddingProvider:
             embedding_model=model,
             dims=settings.embedding_dims,
         )
-    base_url, api_key, dims = _resolve_embed_endpoint(provider)
+    base_url, api_key, dims = resolve_embed_endpoint(provider)
     return OpenAICompatibleEmbeddings(
         base_url=base_url, api_key=api_key, model=model, dims=dims
     )
