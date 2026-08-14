@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Save, Zap } from "lucide-react";
+import { KeyRound, Loader2, Save, Trash2, Zap } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { ProviderRegistryEntry, SettingsConfig, SettingsOut, TestResult } from "@/lib/types";
+import type {
+  CredentialSummary,
+  ProviderRegistryEntry,
+  SettingsConfig,
+  SettingsOut,
+  TestResult,
+} from "@/lib/types";
 
 const EMPTY: SettingsConfig = {
   chat_provider: "",
@@ -75,20 +81,44 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   );
 }
 
+function protocolBadge(protocol?: string) {
+  if (!protocol) return null;
+  return <span className="ml-1 text-[10px] text-muted-foreground">· {protocol}</span>;
+}
+
+// Resolved endpoint for a model, per its API protocol (OpenCode Zen/Go docs).
+function endpointOf(
+  provider: ProviderRegistryEntry | undefined,
+  modelId: string,
+  host: string,
+): string {
+  const base = host || provider?.api || "";
+  if (!base) return "(definir host)";
+  const proto = provider?.chat_models.find((m) => m.id === modelId)?.protocol ?? "chat";
+  if (proto === "responses") return `${base}/responses`;
+  if (proto === "messages") return `${base}/messages`;
+  if (proto === "google") return `${base}/models/${modelId}:generateContent`;
+  return `${base}/chat/completions`;
+}
+
 export function SettingsPanel() {
   const [draft, setDraft] = useState<SettingsConfig>(EMPTY);
   const [overridden, setOverridden] = useState<string[]>([]);
   const [providers, setProviders] = useState<ProviderRegistryEntry[]>([]);
+  const [creds, setCreds] = useState<Record<string, CredentialSummary>>({});
+  const [credDrafts, setCredDrafts] = useState<Record<string, { base_url: string; api_key: string }>>({});
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [savingCred, setSavingCred] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
-    const [sRes, pRes] = await Promise.all([
+    const [sRes, pRes, cRes] = await Promise.all([
       fetch("/api/admin/settings"),
       fetch("/api/admin/providers"),
+      fetch("/api/auth/credentials"),
     ]);
     if (sRes.ok) {
       const s = (await sRes.json()) as SettingsOut;
@@ -98,6 +128,10 @@ export function SettingsPanel() {
     if (pRes.ok) {
       const p = (await pRes.json()) as { providers: ProviderRegistryEntry[] };
       setProviders(p.providers ?? []);
+    }
+    if (cRes.ok) {
+      const list = (await cRes.json()) as CredentialSummary[];
+      setCreds(Object.fromEntries(list.map((c) => [c.provider, c])));
     }
     setLoaded(true);
   }, []);
@@ -115,10 +149,65 @@ export function SettingsPanel() {
     setDirty((prev) => new Set(prev).add(key as string));
   };
 
-  const chatModels = chatProviders.find((p) => p.id === draft.chat_provider)?.chat_models ?? [];
-  const embedModels = embedProviders.find((p) => p.id === draft.embedding_provider)?.embedding_models ?? [];
+  const chatProviderObj = chatProviders.find((p) => p.id === draft.chat_provider);
+  const embedProviderObj = embedProviders.find((p) => p.id === draft.embedding_provider);
+  const chatModels = chatProviderObj?.chat_models ?? [];
+  const embedModels = embedProviderObj?.embedding_models ?? [];
   const chatIsCustom = draft.chat_provider === "custom";
   const embedIsCustom = draft.embedding_provider === "custom";
+
+  const credHost = (p: ProviderRegistryEntry | undefined): string => {
+    const d = p ? credDrafts[p.id]?.base_url : "";
+    if (d?.trim()) return d.trim();
+    if (p && creds[p.id]?.has_base_url) return "(seu host)";
+    if (p?.id === "custom") return "LLM_BASE_URL (env)";
+    return p?.api ?? "";
+  };
+
+  const setCredField = (provider: string, field: "base_url" | "api_key", value: string) => {
+    setCredDrafts((prev) => ({
+      ...prev,
+      [provider]: { ...(prev[provider] ?? { base_url: "", api_key: "" }), [field]: value },
+    }));
+  };
+
+  async function saveCred(provider: string) {
+    setSavingCred(provider);
+    const d = credDrafts[provider] ?? { base_url: "", api_key: "" };
+    const payload: Record<string, string> = {};
+    if (d.base_url.trim()) payload.base_url = d.base_url.trim();
+    if (d.api_key.trim()) payload.api_key = d.api_key.trim();
+    const res = await fetch(`/api/auth/credentials/${provider}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.json();
+      toast.error(body.detail ?? "Falha ao salvar credencial");
+      setSavingCred(null);
+      return;
+    }
+    const summary = (await res.json()) as CredentialSummary;
+    setCreds((prev) => ({ ...prev, [provider]: summary }));
+    setCredDrafts((prev) => ({ ...prev, [provider]: { base_url: "", api_key: "" } }));
+    toast.success(`Credencial de ${provider} salva`);
+    setSavingCred(null);
+  }
+
+  async function deleteCred(provider: string) {
+    const res = await fetch(`/api/auth/credentials/${provider}`, { method: "DELETE" });
+    if (res.ok) {
+      setCreds((prev) => {
+        const next = { ...prev };
+        delete next[provider];
+        return next;
+      });
+      toast.success(`Credencial de ${provider} removida`);
+    } else {
+      toast.error("Falha ao remover");
+    }
+  }
 
   async function save() {
     if (dirty.size === 0) return;
@@ -157,6 +246,69 @@ export function SettingsPanel() {
     setTesting(false);
   }
 
+  // Renders the BYOK host/api-key fields for a selected provider (plain function,
+  // not a component — avoids input remounts).
+  const renderCredFields = (provider: string, providerObj: ProviderRegistryEntry | undefined) => {
+    const d = credDrafts[provider];
+    const c = creds[provider];
+    const host = credHost(providerObj);
+    return (
+      <div className="space-y-2 rounded-md border px-3 py-3">
+        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <KeyRound className="h-3.5 w-3.5" />
+          Credenciais deste provider (BYOK)
+          {c && (
+            <Badge variant="outline">
+              {c.has_api_key ? `chave ••••${c.api_key_last4}` : ""}
+              {c.has_api_key && c.has_base_url ? " · " : ""}
+              {c.has_base_url ? "host próprio" : ""}
+            </Badge>
+          )}
+          {!c && <Badge variant="secondary">usa default do env</Badge>}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <div className="space-y-1">
+            <Label className="text-xs">Host (opcional — p/ local/gateway)</Label>
+            <Input
+              placeholder={providerObj?.api ?? "https://..."}
+              value={d?.base_url ?? ""}
+              onChange={(e) => setCredField(provider, "base_url", e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">API key (opcional)</Label>
+            <Input
+              type="password"
+              placeholder={c?.has_api_key ? `••••${c.api_key_last4}` : "••••••••"}
+              value={d?.api_key ?? ""}
+              onChange={(e) => setCredField(provider, "api_key", e.target.value)}
+            />
+          </div>
+          <div className="flex items-end gap-1">
+            <Button size="sm" onClick={() => saveCred(provider)} disabled={savingCred === provider}>
+              {savingCred === provider ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Salvar
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => deleteCred(provider)}
+              disabled={!c}
+              className="text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        {provider === draft.chat_provider && draft.chat_model && (
+          <p className="break-all font-mono text-[11px] text-muted-foreground">
+            endpoint: {endpointOf(providerObj, draft.chat_model, host)}
+          </p>
+        )}
+      </div>
+    );
+  };
+
   if (!loaded) {
     return <p className="text-sm text-muted-foreground">Carregando configurações…</p>;
   }
@@ -167,8 +319,8 @@ export function SettingsPanel() {
         <CardHeader>
           <CardTitle className="text-sm">Modelos de IA</CardTitle>
           <CardDescription>
-            Chat e embeddings podem usar providers diferentes. Chaves continuam no ambiente
-            (env/Secret Manager) — aqui só se escolhe e testa.
+            Chat e embeddings podem usar providers diferentes. Host e chave são por usuário
+            (BYOK, criptografado) — sem chave sua, usa o default do ambiente.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -204,12 +356,15 @@ export function SettingsPanel() {
                   {chatModels.map((m) => (
                     <SelectItem key={m.id} value={m.id}>
                       {m.label} {m.free ? "(free)" : ""}
+                      {protocolBadge(m.protocol)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             )}
           </FieldRow>
+
+          {chatProviderObj && renderCredFields(draft.chat_provider, chatProviderObj)}
 
           <FieldRow label="Provider de embeddings" custom={overridden.includes("embedding_provider")}>
             <Select
@@ -247,6 +402,8 @@ export function SettingsPanel() {
               </Select>
             )}
           </FieldRow>
+
+          {embedProviderObj && renderCredFields(draft.embedding_provider, embedProviderObj)}
 
           <div className="grid grid-cols-2 gap-4">
             <FieldRow label="Temperatura" custom={overridden.includes("temperature")}>
@@ -324,7 +481,7 @@ export function SettingsPanel() {
           <CardHeader>
             <CardTitle className="text-sm">Testar conexão</CardTitle>
             <CardDescription>
-              Testa o provider de chat selecionado acima (sem salvar).
+              Testa o provider de chat selecionado acima, usando suas credenciais (BYOK).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -343,7 +500,7 @@ export function SettingsPanel() {
                   {testResult.ok ? "Conectado" : "Falha"} · {testResult.latency_ms}ms
                 </p>
                 {testResult.reply && <p className="text-muted-foreground">resposta: {testResult.reply}</p>}
-                {testResult.error && <p className="text-destructive break-words">{testResult.error}</p>}
+                {testResult.error && <p className="break-words text-destructive">{testResult.error}</p>}
               </div>
             )}
           </CardContent>
