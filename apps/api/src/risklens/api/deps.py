@@ -17,6 +17,7 @@ from risklens.application.ports import (
     VectorStore,
 )
 from risklens.core.security import decode_token
+from risklens.infrastructure.ai import runtime
 from risklens.infrastructure.ai.llm_provider import build_chat_provider, build_embedding_provider
 from risklens.infrastructure.db import repository as repo
 from risklens.infrastructure.db.session import get_session
@@ -28,22 +29,28 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 _llm: LLMProvider | None = None
 _embedder: EmbeddingProvider | None = None
+_llm_version: int = -1
+_embedder_version: int = -1
 _storage: DocumentStorage = FsDocumentStorage()
 _vector_store: VectorStore = PgVectorStore()
 _job_queue: JobQueue = ArqJobQueue()
 
 
-def get_llm() -> LLMProvider:
-    global _llm
-    if _llm is None:
+async def get_llm() -> LLMProvider:
+    global _llm, _llm_version
+    version = await runtime.get_config_version()
+    if _llm is None or version != _llm_version:
         _llm = build_chat_provider()
+        _llm_version = version
     return _llm
 
 
-def get_embedder() -> EmbeddingProvider:
-    global _embedder
-    if _embedder is None:
+async def get_embedder() -> EmbeddingProvider:
+    global _embedder, _embedder_version
+    version = await runtime.get_config_version()
+    if _embedder is None or version != _embedder_version:
         _embedder = build_embedding_provider()
+        _embedder_version = version
     return _embedder
 
 

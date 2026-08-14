@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     ff_rag_hybrid_search: bool = True
     ff_eval_llm_judge: bool = True
 
+    # --- RAG tuning (env defaults; overridable at runtime via the settings panel) ---
+    rag_chunk_size: int = 1200
+    rag_top_k: int = 6
+
     # --- Storage ---
     upload_dir: str = "./uploads"
     max_upload_mb: int = 10

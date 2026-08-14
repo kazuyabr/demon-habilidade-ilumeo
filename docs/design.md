@@ -66,3 +66,12 @@ cost. An NER layer would add person-name coverage at the cost of determinism.
 Extraction data, agent traces and eval metrics are JSONB. Trade-off: less type safety at
 the DB boundary in exchange for no migrations when a schema evolves. Validation happens
 in the application layer (Pydantic), not the database.
+
+## 10. Runtime configuration (settings panel)
+
+Env vars provide the baseline; a settings panel persists **overrides** in a single
+`app_settings` JSONB row (no secrets — API keys stay in env/Secret Manager). The
+effective config is cached in memory, and a Redis version counter lets the API and the
+arq worker **rebuild providers lazily** when settings change — no redeploy. Feature flags
+and RAG knobs (chunk size, top-k, hybrid search) resolve the same way, so tuning and
+provider switches are runtime actions.

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from risklens.api.routers import admin, agents, auth, documents, evals, extractions, rag
 from risklens.core.config import settings
 from risklens.core.telemetry import init_telemetry
+from risklens.infrastructure.ai import runtime
 
 logger = logging.getLogger("risklens.api")
 
@@ -21,6 +22,7 @@ API_V1 = "/api/v1"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_telemetry(app)
+    await runtime.load_effective_config()
     yield
 
 

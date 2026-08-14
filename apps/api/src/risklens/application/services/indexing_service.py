@@ -12,6 +12,7 @@ from uuid import UUID
 
 from risklens.application.ports import EmbeddingProvider, VectorStore
 from risklens.domain.entities import ChunkInput
+from risklens.infrastructure.ai import runtime
 
 TARGET_CHARS = 1200
 OVERLAP_CHARS = 150
@@ -51,7 +52,8 @@ async def index_document(
     document_id: UUID,
     text: str,
 ) -> int:
-    raw_chunks = chunk_text(text)
+    cfg = runtime.get_cached_config()
+    raw_chunks = chunk_text(text, target_chars=int(cfg["chunk_size"]))
     chunks = [
         ChunkInput(document_id=document_id, chunk_index=i, content=content, metadata=meta)
         for i, (content, meta) in enumerate(raw_chunks)

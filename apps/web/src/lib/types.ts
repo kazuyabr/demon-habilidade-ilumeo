@@ -99,6 +99,44 @@ export interface FeatureFlags {
   embedding_dims: number;
 }
 
+export interface SettingsConfig {
+  chat_provider: string;
+  chat_model: string;
+  embedding_provider: string;
+  embedding_model: string;
+  temperature: number;
+  max_tokens: number;
+  chunk_size: number;
+  top_k: number;
+  rag_hybrid: boolean;
+  ff_agent_review_enabled: boolean;
+  ff_eval_llm_judge: boolean;
+}
+
+export interface SettingsOut {
+  config: SettingsConfig;
+  overridden: string[];
+}
+
+export interface TestResult {
+  ok: boolean;
+  latency_ms: number;
+  model: string;
+  reply?: string | null;
+  error?: string | null;
+}
+
+export interface ProviderRegistryEntry {
+  id: string;
+  label: string;
+  api: string | null;
+  env_key: string | null;
+  chat: boolean;
+  embeddings: boolean;
+  chat_models: Array<{ id: string; label: string; free: boolean; dims: number | null }>;
+  embedding_models: Array<{ id: string; label: string; free: boolean; dims: number | null }>;
+}
+
 export const STATUS_COLORS: Record<string, string> = {
   pending: "bg-zinc-400",
   processing: "bg-blue-500 animate-pulse",

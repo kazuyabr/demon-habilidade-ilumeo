@@ -23,6 +23,7 @@ from risklens.application.ports import LLMProvider
 from risklens.application.services.extraction_service import extract_from_text
 from risklens.core.config import settings
 from risklens.domain.schemas import CreditRiskReport
+from risklens.infrastructure.ai import runtime
 from risklens.infrastructure.db import repository as repo
 
 
@@ -130,7 +131,7 @@ async def run_eval(llm: LLMProvider, *, eval_run_id: UUID, name: str) -> dict:
                     agg["score_mae"] = 0.0
                 agg["score_mae"] = round(float(agg["score_mae"]) + cmp["score_mae"], 2)
 
-            if settings.ff_eval_llm_judge:
+            if runtime.get_cached_config()["ff_eval_llm_judge"]:
                 judge = await _llm_judge(llm, expected=expected, actual=actual)
                 judge_sum += judge
                 judge_n += 1

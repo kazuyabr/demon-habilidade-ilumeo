@@ -28,7 +28,7 @@ from opentelemetry import trace
 
 from risklens.application.ports import EmbeddingProvider, LLMProvider
 from risklens.core.config import settings
-from risklens.infrastructure.ai import registry
+from risklens.infrastructure.ai import registry, runtime
 
 _tracer = trace.get_tracer("risklens.ai")
 
@@ -71,14 +71,15 @@ class OpenAICompatibleProvider(_BaseProvider):
     ) -> str:
         span = await self._span("llm.complete", system=system, user=user)
         try:
+            cfg = runtime.get_cached_config()
             resp = await self._client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                max_tokens=max_tokens or settings.llm_max_tokens,
-                temperature=temperature if temperature is not None else settings.llm_temperature,
+                max_tokens=max_tokens or cfg["max_tokens"],
+                temperature=temperature if temperature is not None else cfg["temperature"],
             )
             content = resp.choices[0].message.content or ""
             if resp.usage:
@@ -108,12 +109,13 @@ class AnthropicProvider(_BaseProvider):
     ) -> str:
         span = await self._span("llm.complete", system=system, user=user)
         try:
+            cfg = runtime.get_cached_config()
             resp = await self._client.messages.create(
                 model=self.model,
                 system=system,
                 messages=[{"role": "user", "content": user}],
-                max_tokens=max_tokens or settings.llm_max_tokens,
-                temperature=temperature if temperature is not None else settings.llm_temperature,
+                max_tokens=max_tokens or cfg["max_tokens"],
+                temperature=temperature if temperature is not None else cfg["temperature"],
             )
             return "".join(block.text for block in resp.content if block.type == "text")
         finally:
@@ -168,13 +170,14 @@ class VertexProvider(_BaseProvider):
         client = self._get()
         span = await self._span("llm.complete", system=system, user=user)
         try:
+            cfg = runtime.get_cached_config()
             resp = await client.aio.models.generate_content(
                 model=self.model,
                 contents=user,
                 config=types.GenerateContentConfig(
                     system_instruction=system,
-                    max_output_tokens=max_tokens or settings.llm_max_tokens,
-                    temperature=temperature if temperature is not None else settings.llm_temperature,
+                    max_output_tokens=max_tokens or cfg["max_tokens"],
+                    temperature=temperature if temperature is not None else cfg["temperature"],
                 ),
             )
             return resp.text or ""
@@ -298,45 +301,71 @@ def _resolve_embed_endpoint(provider: str) -> tuple[str, str, int | None]:
 
 
 def build_chat_provider() -> LLMProvider:
-    provider = settings.llm_provider.lower()
+    cfg = runtime.get_cached_config()
+    provider = str(cfg["chat_provider"]).lower()
+    model = str(cfg["chat_model"])
     with contextlib.suppress(ValueError):
-        registry.require_chat_model(provider, settings.llm_model)
+        registry.require_chat_model(provider, model)
 
     if provider == "anthropic":
         return AnthropicProvider(
             api_key=settings.anthropic_api_key or settings.llm_api_key,
-            model=settings.llm_model,
+            model=model,
         )
     if provider == "vertex":
         return VertexProvider(
             project=settings.vertex_project,
             region=settings.vertex_region,
             api_key=settings.vertex_api_key,
-            model=settings.llm_model,
-            embedding_model=settings.embedding_model,
+            model=model,
+            embedding_model=str(cfg["embedding_model"]),
             dims=settings.embedding_dims,
         )
     base_url, api_key = _resolve_chat_endpoint(provider)
-    return OpenAICompatibleProvider(base_url=base_url, api_key=api_key, model=settings.llm_model)
+    return OpenAICompatibleProvider(base_url=base_url, api_key=api_key, model=model)
 
 
-def build_embedding_provider() -> EmbeddingProvider:
-    provider = settings.embedding_provider.lower()
-    with contextlib.suppress(ValueError):
-        registry.require_embedding_model(provider, settings.embedding_model, dims=settings.embedding_dims)
-
-    if provider == "fastembed":
-        return FastEmbedProvider(model=settings.embedding_model, dims=settings.embedding_dims)
+def build_chat_provider_for(provider: str, model: str) -> LLMProvider:
+    """Build a chat provider for an explicit (provider, model) — used by the
+    settings 'test connection' feature without mutating the active config."""
+    provider = provider.lower()
+    if provider == "anthropic":
+        return AnthropicProvider(
+            api_key=settings.anthropic_api_key or settings.llm_api_key,
+            model=model,
+        )
     if provider == "vertex":
         return VertexProvider(
             project=settings.vertex_project,
             region=settings.vertex_region,
             api_key=settings.vertex_api_key,
-            model=settings.llm_model,
-            embedding_model=settings.embedding_model,
+            model=model,
+            embedding_model=str(runtime.get_cached_config()["embedding_model"]),
+            dims=settings.embedding_dims,
+        )
+    base_url, api_key = _resolve_chat_endpoint(provider)
+    return OpenAICompatibleProvider(base_url=base_url, api_key=api_key, model=model)
+
+
+def build_embedding_provider() -> EmbeddingProvider:
+    cfg = runtime.get_cached_config()
+    provider = str(cfg["embedding_provider"]).lower()
+    model = str(cfg["embedding_model"])
+    with contextlib.suppress(ValueError):
+        registry.require_embedding_model(provider, model, dims=settings.embedding_dims)
+
+    if provider == "fastembed":
+        return FastEmbedProvider(model=model, dims=settings.embedding_dims)
+    if provider == "vertex":
+        return VertexProvider(
+            project=settings.vertex_project,
+            region=settings.vertex_region,
+            api_key=settings.vertex_api_key,
+            model=str(cfg["chat_model"]),
+            embedding_model=model,
             dims=settings.embedding_dims,
         )
     base_url, api_key, dims = _resolve_embed_endpoint(provider)
     return OpenAICompatibleEmbeddings(
-        base_url=base_url, api_key=api_key, model=settings.embedding_model, dims=dims
+        base_url=base_url, api_key=api_key, model=model, dims=dims
     )

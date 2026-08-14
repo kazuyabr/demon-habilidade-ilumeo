@@ -137,3 +137,35 @@ class ProvidersOut(BaseModel):
     providers: list[dict]
     active_chat: ActiveProviderOut
     active_embeddings: ActiveProviderOut
+
+
+class SettingsOut(BaseModel):
+    config: dict
+    overridden: list[str]
+
+
+class SettingsUpdate(BaseModel):
+    chat_provider: str | None = None
+    chat_model: str | None = None
+    embedding_provider: str | None = None
+    embedding_model: str | None = None
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    max_tokens: int | None = Field(default=None, ge=64, le=16384)
+    chunk_size: int | None = Field(default=None, ge=200, le=4000)
+    top_k: int | None = Field(default=None, ge=1, le=20)
+    rag_hybrid: bool | None = None
+    ff_agent_review_enabled: bool | None = None
+    ff_eval_llm_judge: bool | None = None
+
+
+class SettingsTestIn(BaseModel):
+    provider: str = Field(min_length=2)
+    model: str = Field(min_length=1)
+
+
+class SettingsTestOut(BaseModel):
+    ok: bool
+    latency_ms: int
+    model: str
+    reply: str | None = None
+    error: str | None = None
