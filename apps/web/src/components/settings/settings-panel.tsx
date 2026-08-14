@@ -117,6 +117,8 @@ export function SettingsPanel() {
 
   const chatModels = chatProviders.find((p) => p.id === draft.chat_provider)?.chat_models ?? [];
   const embedModels = embedProviders.find((p) => p.id === draft.embedding_provider)?.embedding_models ?? [];
+  const chatIsCustom = draft.chat_provider === "custom";
+  const embedIsCustom = draft.embedding_provider === "custom";
 
   async function save() {
     if (dirty.size === 0) return;
@@ -189,16 +191,24 @@ export function SettingsPanel() {
           </FieldRow>
 
           <FieldRow label="Modelo de chat" custom={overridden.includes("chat_model")}>
-            <Select value={draft.chat_model} onValueChange={(v) => set("chat_model", v)}>
-              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-              <SelectContent>
-                {chatModels.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.label} {m.free ? "(free)" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {chatIsCustom ? (
+              <Input
+                placeholder="ex.: meu-modelo-custom"
+                value={draft.chat_model}
+                onChange={(e) => set("chat_model", e.target.value)}
+              />
+            ) : (
+              <Select value={draft.chat_model} onValueChange={(v) => set("chat_model", v)}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>
+                  {chatModels.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.label} {m.free ? "(free)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </FieldRow>
 
           <FieldRow label="Provider de embeddings" custom={overridden.includes("embedding_provider")}>
@@ -220,14 +230,22 @@ export function SettingsPanel() {
           </FieldRow>
 
           <FieldRow label="Modelo de embeddings" custom={overridden.includes("embedding_model")}>
-            <Select value={draft.embedding_model} onValueChange={(v) => set("embedding_model", v)}>
-              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-              <SelectContent>
-                {embedModels.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {embedIsCustom ? (
+              <Input
+                placeholder="ex.: meu-embedder-custom"
+                value={draft.embedding_model}
+                onChange={(e) => set("embedding_model", e.target.value)}
+              />
+            ) : (
+              <Select value={draft.embedding_model} onValueChange={(v) => set("embedding_model", v)}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>
+                  {embedModels.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </FieldRow>
 
           <div className="grid grid-cols-2 gap-4">
