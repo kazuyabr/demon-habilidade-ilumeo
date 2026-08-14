@@ -70,6 +70,15 @@ multi-call agent orchestration can hit `429 FreeUsageLimitError`. For agent/eval
 workloads, use a local model, a paid provider, or Vertex — the `.env` makes the switch
 trivial.
 
+## Chinese-provider models (Go gating)
+
+The docs state Zen hosts all models in the US and Go provides global access; the `/models`
+API does not expose hosting region. Models from Chinese providers (`deepseek-*`, `qwen-*`,
+`glm-*`, `kimi-*`, `minimax-*`, `mimo-*`, `hy3`) may require enabling **"models hosted in
+China"** on the Go subscription when a call fails with a permission error. The UI marks
+these models and, on a permission-like connection failure, guides the client to
+`opencode.ai/auth` instead of showing a raw error.
+
 ## Why separate chat and embeddings
 
 The RAG embedder does not have to match the generator. Example: chat on OpenCode Zen
