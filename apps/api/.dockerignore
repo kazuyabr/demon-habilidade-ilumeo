@@ -1,0 +1,15 @@
+# Local build context (host only) — keep the image lean and secrets out.
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+tests
+uploads
+.env
+.env.*
+.git
+Dockerfile
+*.log

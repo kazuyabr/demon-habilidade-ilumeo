@@ -32,20 +32,45 @@ infra/         → docker-compose.yml · terraform/gcp (referência)
 > Guia passo a passo completo em `.vibecoding/passo-de-uso/` (material de estudo do
 > autor, fora do git).
 
-### 1. Pré-requisitos
+### Opção 1 — Tudo via Docker (recomendado)
+
+```bash
+# 1. LM Studio (para a IA local): carregue google/gemma-3-4b e
+#    text-embedding-nomic-embed-text-v1.5 e ligue o servidor em 127.0.0.1:1234
+#    (o compose acessa via host.docker.internal)
+
+# 2. Suba a stack inteira (Postgres, Redis, migrate, seed, api, worker, web)
+docker compose up --build -d
+
+# 3. Acesse
+#    Web:  http://127.0.0.1:3000   (admin@risklens.local / Admin@12345)
+#    API:  http://127.0.0.1:8010/health
+
+# Smoke test contra a stack dockerizada (a partir da raiz do repo):
+#   cd apps/api && .venv/Scripts/python -m risklens.scripts.smoke
+```
+
+> A IA é **multi-provider via `.env`/compose**: o default do docker usa **LM Studio local**
+> (confiável/offline). Para **cloud grátis** (`opencode` + `fastembed`, sem chave) ou
+> **produção** (`vertex`/`openai`), edite o bloco `environment` do compose — ver
+> `.vibecoding/docs/15-multi-provider`.
+
+### Opção 2 — App nativo (dev iterativo)
+
+#### 1. Pré-requisitos
 
 - Docker Desktop, Node 22, pnpm, uv, LM Studio
 - **LM Studio**: carregue `google/gemma-3-4b` e `text-embedding-nomic-embed-text-v1.5` e
   ligue o servidor em `127.0.0.1:1234`
 
-### 2. Infra
+#### 2. Infra
 
 ```bash
 cp .env.example .env
-docker compose up -d          # Postgres+pgvector e Redis
+docker compose up -d postgres redis   # só a infra (ou omita e suba tudo)
 ```
 
-### 3. API + worker
+#### 3. API + worker
 
 ```bash
 cd apps/api
@@ -56,7 +81,7 @@ uv run risklens-worker        # (janela 2) processa a fila
 uv run uvicorn risklens.main:app --host 127.0.0.1 --port 8010 --reload   # (janela 3)
 ```
 
-### 4. Web
+#### 4. Web
 
 ```bash
 cd apps/web
@@ -67,7 +92,7 @@ pnpm dev                     # http://127.0.0.1:3000
 
 Login: `admin@risklens.local` / `Admin@12345`
 
-### 5. Smoke test (valida o ambiente inteiro)
+#### 5. Smoke test (valida o ambiente inteiro)
 
 ```bash
 cd apps/api
