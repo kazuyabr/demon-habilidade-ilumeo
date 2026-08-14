@@ -28,6 +28,7 @@ class CredentialSummary(BaseModel):
     has_api_key: bool
     api_key_last4: str | None = None
     has_base_url: bool
+    base_url: str | None = None  # host URL (not a secret) so the UI can pre-fill
     updated_at: str | None = None
 
 

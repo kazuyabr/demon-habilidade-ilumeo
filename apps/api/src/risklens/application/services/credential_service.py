@@ -42,6 +42,7 @@ async def list_credentials(user_id: UUID) -> list[dict]:
             "has_api_key": bool(r.api_key_encrypted),
             "api_key_last4": r.api_key_last4,
             "has_base_url": bool(r.base_url_encrypted),
+            "base_url": decrypt_secret(r.base_url_encrypted) if r.base_url_encrypted else None,
             "updated_at": r.updated_at.isoformat(),
         }
         for r in rows
@@ -96,6 +97,7 @@ async def summary(user_id: UUID, provider: str) -> dict:
         "has_api_key": bool(cred and cred.api_key_encrypted),
         "api_key_last4": cred.api_key_last4 if cred else None,
         "has_base_url": bool(cred and cred.base_url_encrypted),
+        "base_url": decrypt_secret(cred.base_url_encrypted) if cred and cred.base_url_encrypted else None,
         "updated_at": cred.updated_at.isoformat() if cred else None,
     }
 
