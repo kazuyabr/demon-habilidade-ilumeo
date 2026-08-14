@@ -24,11 +24,19 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          Modelo ativo: <span className="font-mono">{flags.llm_model}</span> · provider{" "}
-          <span className="font-mono">{flags.llm_provider}</span> · RAG híbrido:{" "}
-          {flags.rag_hybrid_search ? "ligado" : "desligado"}
-        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          <span>
+            Chat: <span className="font-mono">{flags.llm_provider}</span>{" "}
+            <span className="font-mono">{flags.llm_model}</span>
+          </span>
+          <span>
+            Embeddings: <span className="font-mono">{flags.embedding_provider}</span>{" "}
+            <span className="font-mono">{flags.embedding_model}</span> ({flags.embedding_dims}d)
+          </span>
+          <span>
+            RAG híbrido: {flags.rag_hybrid_search ? "ligado" : "desligado"}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

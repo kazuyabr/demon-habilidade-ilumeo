@@ -7,14 +7,26 @@ everything comes from environment variables through pydantic-settings.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _find_env_file() -> str:
+    """Resolve the repo-root .env regardless of the process CWD (uvicorn/worker
+    run from apps/api, but the documented .env lives at the repo root)."""
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        candidate = parent / ".env"
+        if candidate.exists():
+            return str(candidate)
+    return ".env"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_find_env_file(),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -45,15 +57,37 @@ class Settings(BaseSettings):
     # --- Redis ---
     redis_url: str = "redis://127.0.0.1:6379/0"
 
-    # --- LLM provider ---
-    llm_provider: str = "lmstudio"  # lmstudio | openai | anthropic | ollama
+    # --- LLM chat provider ---
+    # opencode | openai | anthropic | google | groq | lmstudio | ollama | vertex | custom
+    llm_provider: str = "lmstudio"
+    llm_model: str = "google/gemma-3-4b"
+    # Overrides used by 'custom' (or as fallback for any provider)
     llm_base_url: str = "http://127.0.0.1:1234/v1"
     llm_api_key: str = Field(default="lm-studio", repr=False)
-    llm_model: str = "google/gemma-3-4b"
-    llm_embedding_model: str = "text-embedding-nomic-embed-text-v1.5"
-    llm_embedding_dims: int = 768
     llm_temperature: float = 0.1
     llm_max_tokens: int = 2048
+
+    # Per-provider credentials (only the ones in use need to be set)
+    openai_api_key: str = Field(default="", repr=False)
+    anthropic_api_key: str = Field(default="", repr=False)
+    gemini_api_key: str = Field(default="", repr=False)
+    groq_api_key: str = Field(default="", repr=False)
+    opencode_api_key: str = Field(default="", repr=False)
+    lm_studio_base_url: str = "http://127.0.0.1:1234/v1"
+
+    # Google Vertex AI (enterprise/GCP) — uses google-genai; ADC when no api key
+    vertex_project: str = ""
+    vertex_region: str = "us-central1"
+    vertex_api_key: str = Field(default="", repr=False)
+
+    # --- Embeddings (independent of chat provider) ---
+    # openai | lmstudio | ollama | fastembed | vertex | custom
+    embedding_provider: str = "lmstudio"
+    embedding_model: str = "text-embedding-nomic-embed-text-v1.5"
+    # Fixed dimension across providers so pgvector vector(768) never needs a migration
+    embedding_dims: int = 768
+    embedding_base_url: str = "http://127.0.0.1:1234/v1"
+    embedding_api_key: str = Field(default="lm-studio", repr=False)
 
     # --- Observability ---
     otel_enabled: bool = True

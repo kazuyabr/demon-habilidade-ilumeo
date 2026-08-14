@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from risklens.api.deps import get_current_user, get_llm, get_vector_store
+from risklens.api.deps import get_current_user, get_embedder, get_llm, get_vector_store
 from risklens.api.schemas import RagAnswer
 from risklens.application.services.rag_service import ask
 from risklens.infrastructure.db.models import User
@@ -25,7 +25,8 @@ async def ask_question(
     body: AskRequest,
     _: User = Depends(get_current_user),
     llm=Depends(get_llm),
+    embedder=Depends(get_embedder),
     vector_store=Depends(get_vector_store),
 ) -> RagAnswer:
-    result = await ask(llm, vector_store, question=body.question, document_id=body.document_id)
+    result = await ask(llm, embedder, vector_store, question=body.question, document_id=body.document_id)
     return RagAnswer(**result)

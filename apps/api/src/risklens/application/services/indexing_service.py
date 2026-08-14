@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from uuid import UUID
 
-from risklens.application.ports import LLMProvider, VectorStore
+from risklens.application.ports import EmbeddingProvider, VectorStore
 from risklens.domain.entities import ChunkInput
 
 TARGET_CHARS = 1200
@@ -45,7 +45,7 @@ def chunk_text(text: str, *, target_chars: int = TARGET_CHARS, overlap: int = OV
 
 
 async def index_document(
-    llm: LLMProvider,
+    embedder: EmbeddingProvider,
     vector_store: VectorStore,
     *,
     document_id: UUID,
@@ -59,6 +59,6 @@ async def index_document(
     if not chunks:
         return 0
 
-    embeddings = await llm.embed_texts([c.content for c in chunks])
+    embeddings = await embedder.embed_texts([c.content for c in chunks])
     await vector_store.upsert_chunks(chunks, embeddings)
     return len(chunks)
