@@ -133,7 +133,7 @@ export interface ProviderModel {
   dims: number | null;
   protocol?: string;
   sdk?: string;
-  cn?: boolean;
+  china_gated?: boolean;
 }
 
 export interface ProviderRegistryEntry {

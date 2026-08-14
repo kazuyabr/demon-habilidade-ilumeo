@@ -26,7 +26,10 @@ class ModelInfo(TypedDict):
     dims: int | None  # embeddings only
     protocol: Protocol
     sdk: str  # AI SDK package, per the OpenCode docs endpoint tables
-    cn: bool  # Chinese-hosted provider (activation is a platform-console action)
+    # Chinese-origin provider. Not a hosting claim (docs: Zen=US, Go=global);
+    # signals a possible need to enable "models hosted in China" on the Go
+    # subscription if requests fail with a permission error.
+    china_gated: bool
 
 
 class ProviderInfo(TypedDict):
@@ -55,7 +58,7 @@ def _m(
     free: bool = False,
     dims: int | None = None,
     protocol: Protocol = "chat",
-    cn: bool = False,
+    china_gated: bool = False,
 ) -> ModelInfo:
     return {
         "id": id,
@@ -64,12 +67,16 @@ def _m(
         "dims": dims,
         "protocol": protocol,
         "sdk": _SDK_BY_PROTOCOL.get(protocol, "@ai-sdk/openai-compatible"),
-        "cn": cn,
+        "china_gated": china_gated,
     }
 
 
-def _ms(ids: list[str], protocol: Protocol = "chat", cn: bool = False) -> list[ModelInfo]:
-    return [_m(i, i, protocol=protocol, cn=cn) for i in ids]
+def _ms(
+    ids: list[str],
+    protocol: Protocol = "chat",
+    china_gated: bool = False,
+) -> list[ModelInfo]:
+    return [_m(i, i, protocol=protocol, china_gated=china_gated) for i in ids]
 
 
 PROVIDERS: list[ProviderInfo] = [
@@ -82,13 +89,13 @@ PROVIDERS: list[ProviderInfo] = [
         "embeddings": False,
         "chat_models": [
             # OpenAI-compatible (chat/completions)
-            *_ms(["deepseek-v4-flash", "deepseek-v4-pro"], cn=True),
-            _m("deepseek-v4-flash-free", "deepseek-v4-flash-free", free=True, cn=True),
-            *_ms(["minimax-m3", "minimax-m2.7", "minimax-m2.5"], cn=True),
-            *_ms(["glm-5.2", "glm-5.1", "glm-5"], cn=True),
-            *_ms(["kimi-k3", "kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5"], cn=True),
-            _m("mimo-v2.5-free", "mimo-v2.5-free", free=True, cn=True),
-            _m("hy3-free", "hy3-free", free=True, cn=True),
+            *_ms(["deepseek-v4-flash", "deepseek-v4-pro"], china_gated=True),
+            _m("deepseek-v4-flash-free", "deepseek-v4-flash-free", free=True, china_gated=True),
+            *_ms(["minimax-m3", "minimax-m2.7", "minimax-m2.5"], china_gated=True),
+            *_ms(["glm-5.2", "glm-5.1", "glm-5"], china_gated=True),
+            *_ms(["kimi-k3", "kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5"], china_gated=True),
+            _m("mimo-v2.5-free", "mimo-v2.5-free", free=True, china_gated=True),
+            _m("hy3-free", "hy3-free", free=True, china_gated=True),
             _m("laguna-s-2.1-free", "laguna-s-2.1-free", free=True),
             _m("big-pickle", "big-pickle", free=True),
             _m("nemotron-3-ultra-free", "nemotron-3-ultra-free", free=True),
@@ -114,7 +121,11 @@ PROVIDERS: list[ProviderInfo] = [
                 ],
                 protocol="messages",
             ),
-            *_ms(["qwen3.7-max", "qwen3.7-plus", "qwen3.6-plus", "qwen3.5-plus"], protocol="messages", cn=True),
+            *_ms(
+                ["qwen3.7-max", "qwen3.7-plus", "qwen3.6-plus", "qwen3.5-plus"],
+                protocol="messages",
+                china_gated=True,
+            ),
             # Gemini (google)
             *_ms(
                 [
@@ -139,8 +150,8 @@ PROVIDERS: list[ProviderInfo] = [
         "embeddings": False,
         "chat_models": [
             # OpenAI-compatible (chat/completions) — baratos/volumosos, ideais p/ agentes/evals
-            *_ms(["mimo-v2.5", "mimo-v2.5-pro", "deepseek-v4-flash", "deepseek-v4-pro", "hy3"], cn=True),
-            *_ms(["glm-5.3", "glm-5.2", "glm-5.1", "kimi-k3", "kimi-k2.7-code", "kimi-k2.6"], cn=True),
+            *_ms(["mimo-v2.5", "mimo-v2.5-pro", "deepseek-v4-flash", "deepseek-v4-pro", "hy3"], china_gated=True),
+            *_ms(["glm-5.3", "glm-5.2", "glm-5.1", "kimi-k3", "kimi-k2.7-code", "kimi-k2.6"], china_gated=True),
             # OpenAI Responses
             *_ms(["grok-4.5", "gpt-5.6-luna"], protocol="responses"),
             # Anthropic Messages
@@ -155,7 +166,7 @@ PROVIDERS: list[ProviderInfo] = [
                     "qwen3.6-plus",
                 ],
                 protocol="messages",
-                cn=True,
+                china_gated=True,
             ),
         ],
         "embedding_models": [],
