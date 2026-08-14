@@ -86,6 +86,11 @@ function protocolBadge(protocol?: string) {
   return <span className="ml-1 text-[10px] text-muted-foreground">· {protocol}</span>;
 }
 
+function looksLikePermissionError(error: string): boolean {
+  const e = error.toLowerCase();
+  return /permission|not allowed|forbidden|disabled|403|china|hosted/i.test(e);
+}
+
 // Resolved endpoint for a model, per its API protocol (OpenCode Zen/Go docs).
 function endpointOf(
   provider: ProviderRegistryEntry | undefined,
@@ -374,12 +379,12 @@ export function SettingsPanel() {
                     <SelectItem key={m.id} value={m.id}>
                       {m.label} {m.free ? "(free)" : ""}
                       {protocolBadge(m.protocol)}
-                      {m.cn && (
+                      {m.china_gated && (
                         <span
                           className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-400"
-                          title="Provedor hospedado na China — ativação/desativação via console da plataforma (sem API pública)"
+                          title="Provedor chinês — se o uso falhar por permissão, habilite 'modelos hospedados na China' na sua assinatura GO (opencode.ai/auth)."
                         >
-                          CN
+                          liberação China (GO)
                         </span>
                       )}
                     </SelectItem>
@@ -525,7 +530,18 @@ export function SettingsPanel() {
                   {testResult.ok ? "Conectado" : "Falha"} · {testResult.latency_ms}ms
                 </p>
                 {testResult.reply && <p className="text-muted-foreground">resposta: {testResult.reply}</p>}
-                {testResult.error && <p className="break-words text-destructive">{testResult.error}</p>}
+                {testResult.error && (
+                  <div className="space-y-1">
+                    <p className="break-words text-destructive">{testResult.error}</p>
+                    {looksLikePermissionError(testResult.error) && (
+                      <p className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                        Parece erro de permissão: se este modelo for de provedor chinês, habilite{" "}
+                        <span className="font-medium">&quot;modelos hospedados na China&quot;</span> na sua
+                        assinatura GO (opencode.ai/auth) e teste novamente.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
