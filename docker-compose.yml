@@ -61,6 +61,8 @@ services:
       EMBEDDING_MODEL: text-embedding-nomic-embed-text-v1.5
       EMBEDDING_DIMS: "768"
       EMBEDDING_BASE_URL: http://host.docker.internal:1234/v1
+      # Sem collector OTLP local → desligar OTel nos containers (evita retry spam em 127.0.0.1:4318)
+      OTEL_ENABLED: "false"
       SAMPLES_DIR: /samples
       UPLOAD_DIR: /app/uploads
     depends_on:
@@ -131,7 +133,7 @@ services:
     image: risklens-web:local
     build: ./apps/web
     ports:
-      - "3000:3000"
+      - "3005:3000"
     environment:
       API_INTERNAL_URL: http://api:8010
     depends_on:
