@@ -1,3 +1,13 @@
+# RiskLens full stack.
+#
+#   docker compose up --build -d    # sobe Postgres+pgvector, Redis, migrate,
+#                                   # seed, api, worker e web
+#
+# A IA é multi-provider via env (ver .env.example). O default do compose é
+# **opencode (mimo-v2.5-free) + fastembed** — zero chave paga e sem dependência
+# do host, então funciona em qualquer máquina/cloud. Troque em `environment`
+# abaixo se quiser outro provider (ex.: vertex/openai em produção).
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -30,6 +40,105 @@ services:
       timeout: 5s
       retries: 10
 
+  # --- app (same image, different commands) ------------------------------
+  migrate:
+    image: risklens-api:local
+    build: ./apps/api
+    command: ["sh", "-c", "alembic upgrade head"]
+    environment: &app_env
+      DATABASE_URL: postgresql+asyncpg://risklens:risklens@postgres:5432/risklens
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-in-prod-0123456789}
+      # Chat + embeddings: LM Studio local (host) — confiável e offline.
+      # host.docker.internal encaminha para o loopback do host no Docker Desktop.
+      # Alternativas (trocar = editar este bloco ou usar outro profile):
+      #   opencode (grátis, rate-limit em rajadas): LLM_PROVIDER=opencode + EMBEDDING_PROVIDER=fastembed
+      #   produção/GCP: LLM_PROVIDER=vertex + EMBEDDING_PROVIDER=vertex
+      LLM_PROVIDER: lmstudio
+      LLM_MODEL: google/gemma-3-4b
+      LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+      EMBEDDING_PROVIDER: lmstudio
+      EMBEDDING_MODEL: text-embedding-nomic-embed-text-v1.5
+      EMBEDDING_DIMS: "768"
+      EMBEDDING_BASE_URL: http://host.docker.internal:1234/v1
+      SAMPLES_DIR: /samples
+      UPLOAD_DIR: /app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./samples:/samples:ro
+      - uploads-data:/app/uploads
+    restart: "no"
+
+  seed:
+    image: risklens-api:local
+    build: ./apps/api
+    command: ["sh", "-c", "risklens-seed --with-samples"]
+    environment: *app_env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./samples:/samples:ro
+      - uploads-data:/app/uploads
+    restart: "no"
+
+  api:
+    image: risklens-api:local
+    build: ./apps/api
+    ports:
+      - "8010:8010"
+    environment: *app_env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./samples:/samples:ro
+      - uploads-data:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  worker:
+    image: risklens-api:local
+    build: ./apps/api
+    command: ["risklens-worker"]
+    environment: *app_env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./samples:/samples:ro
+      - uploads-data:/app/uploads
+
+  web:
+    image: risklens-web:local
+    build: ./apps/web
+    ports:
+      - "3000:3000"
+    environment:
+      API_INTERNAL_URL: http://api:8010
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   pgdata:
   redisdata:
+  uploads-data:

@@ -6,6 +6,7 @@ Usage: uv run risklens-seed [--with-samples]
 from __future__ import annotations
 
 import argparse
+import io
 from pathlib import Path
 
 from risklens.application.services.ingestion_service import ingest_upload
@@ -41,11 +42,11 @@ async def _main(with_samples: bool) -> None:
 
             class _File(UploadFile):
                 def __init__(self, path: Path):
-                    super().__init__(filename=path.name, headers=Headers({}))
-                    self._data = path.read_bytes()
-
-                async def read(self, size: int = -1) -> bytes:
-                    return self._data
+                    super().__init__(
+                        file=io.BytesIO(path.read_bytes()),
+                        filename=path.name,
+                        headers=Headers({}),
+                    )
 
             doc, dup = await ingest_upload(storage, queue, _File(path), user_id=None, source="seed")
             print(f"  {'duplicado' if dup else 'enfileirado'} {path.name} -> {doc.id}")
