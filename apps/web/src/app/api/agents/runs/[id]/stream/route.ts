@@ -1,19 +1,9 @@
-import { BACKEND_URL, TOKEN_COOKIE } from "@/lib/api";
-import { cookies } from "next/headers";
+import { serverFetch } from "@/lib/api";
 
 // Proxies the backend SSE stream (Redis pub/sub → live agent trace).
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const cookieStore = await cookies();
-  const token = cookieStore.get(TOKEN_COOKIE)?.value;
-  if (!token) {
-    return new Response("não autenticado", { status: 401 });
-  }
-
-  const backend = await fetch(`${BACKEND_URL}/api/v1/agents/runs/${id}/stream`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
+  const backend = await serverFetch(`/agents/runs/${id}/stream`);
 
   return new Response(backend.body, {
     status: backend.status,

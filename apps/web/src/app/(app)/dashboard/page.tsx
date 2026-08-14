@@ -6,19 +6,35 @@ import { STATUS_COLORS } from "@/lib/types";
 import Link from "next/link";
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// One failing endpoint must not crash the whole page (SSR resilience).
+async function safeFetch<T>(fn: () => Promise<T>): Promise<T | null> {
+  try {
+    return await fn();
+  } catch {
+    return null;
+  }
 }
 
 export default async function DashboardPage() {
   const [docs, evals, agents, flags] = await Promise.all([
-    backendFetch<DocumentItem[]>("/documents?limit=200"),
-    backendFetch<EvalRun[]>("/evals/runs"),
-    backendFetch<AgentRun[]>("/agents/runs"),
-    backendFetch<FeatureFlags>("/admin/flags"),
+    safeFetch(() => backendFetch<DocumentItem[]>("/documents?limit=200")),
+    safeFetch(() => backendFetch<EvalRun[]>("/evals/runs")),
+    safeFetch(() => backendFetch<AgentRun[]>("/agents/runs")),
+    safeFetch(() => backendFetch<FeatureFlags>("/admin/flags")),
   ]);
 
-  const completed = docs.filter((d) => d.status === "completed");
-  const lastEval = evals[0] ?? null;
+  const docList = docs ?? [];
+  const completed = docList.filter((d) => d.status === "completed");
+  const lastEval = evals?.[0] ?? null;
 
   return (
     <div className="space-y-6">
@@ -26,15 +42,16 @@ export default async function DashboardPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           <span>
-            Chat: <span className="font-mono">{flags.llm_provider}</span>{" "}
-            <span className="font-mono">{flags.llm_model}</span>
+            Chat: <span className="font-mono">{flags?.llm_provider ?? "—"}</span>{" "}
+            <span className="font-mono">{flags?.llm_model ?? "—"}</span>
           </span>
           <span>
-            Embeddings: <span className="font-mono">{flags.embedding_provider}</span>{" "}
-            <span className="font-mono">{flags.embedding_model}</span> ({flags.embedding_dims}d)
+            Embeddings: <span className="font-mono">{flags?.embedding_provider ?? "—"}</span>{" "}
+            <span className="font-mono">{flags?.embedding_model ?? "—"}</span>{" "}
+            {flags?.embedding_dims ? `(${flags.embedding_dims}d)` : ""}
           </span>
           <span>
-            RAG híbrido: {flags.rag_hybrid_search ? "ligado" : "desligado"}
+            RAG híbrido: {flags ? (flags.rag_hybrid_search ? "ligado" : "desligado") : "—"}
           </span>
         </div>
       </div>
@@ -42,7 +59,7 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Documentos</CardTitle></CardHeader>
-          <CardContent><p className="text-3xl font-semibold">{docs.length}</p></CardContent>
+          <CardContent><p className="text-3xl font-semibold">{docList.length}</p></CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Processados</CardTitle></CardHeader>
@@ -50,11 +67,11 @@ export default async function DashboardPage() {
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Análises (agente)</CardTitle></CardHeader>
-          <CardContent><p className="text-3xl font-semibold">{agents.length}</p></CardContent>
+          <CardContent><p className="text-3xl font-semibold">{agents?.length ?? 0}</p></CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Evals</CardTitle></CardHeader>
-          <CardContent><p className="text-3xl font-semibold">{evals.length}</p></CardContent>
+          <CardContent><p className="text-3xl font-semibold">{evals?.length ?? 0}</p></CardContent>
         </Card>
       </div>
 
@@ -74,11 +91,15 @@ export default async function DashboardPage() {
                   <div className="grid grid-cols-3 gap-2 text-sm">
                     <div>
                       <p className="text-xs text-muted-foreground">Decisão</p>
-                      <p className="font-semibold">{Math.round(((lastEval.metrics.decision_accuracy as number) ?? 0) * 100)}%</p>
+                      <p className="font-semibold">
+                        {Math.round(((lastEval.metrics.decision_accuracy as number) ?? 0) * 100)}%
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Fuzzy</p>
-                      <p className="font-semibold">{((lastEval.metrics.field_fuzzy_similarity as number) ?? 0).toFixed(2)}</p>
+                      <p className="font-semibold">
+                        {((lastEval.metrics.field_fuzzy_similarity as number) ?? 0).toFixed(2)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">LLM judge</p>
