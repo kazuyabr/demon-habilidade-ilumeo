@@ -156,13 +156,9 @@ export function SettingsPanel() {
   const chatIsCustom = draft.chat_provider === "custom";
   const embedIsCustom = draft.embedding_provider === "custom";
 
-  const credHost = (p: ProviderRegistryEntry | undefined): string => {
-    const d = p ? credDrafts[p.id]?.base_url : "";
-    if (d?.trim()) return d.trim();
-    if (p && creds[p.id]?.has_base_url) return "(seu host)";
-    if (p?.id === "custom") return "LLM_BASE_URL (env)";
-    return p?.api ?? "";
-  };
+  // Effective host for a provider: typed draft > saved (BYOK) > provider default.
+  const hostValue = (provider: string, providerObj: ProviderRegistryEntry | undefined): string =>
+    credDrafts[provider]?.base_url ?? creds[provider]?.base_url ?? providerObj?.api ?? "";
 
   const setCredField = (provider: string, field: "base_url" | "api_key", value: string) => {
     setCredDrafts((prev) => ({
@@ -171,12 +167,20 @@ export function SettingsPanel() {
     }));
   };
 
-  async function saveCred(provider: string) {
+  async function saveCred(provider: string, providerObj?: ProviderRegistryEntry | undefined) {
     setSavingCred(provider);
     const d = credDrafts[provider] ?? { base_url: "", api_key: "" };
+    const effective = d.base_url.trim() || creds[provider]?.base_url || "";
+    const defaultBase = providerObj?.api ?? "";
     const payload: Record<string, string> = {};
-    if (d.base_url.trim()) payload.base_url = d.base_url.trim();
     if (d.api_key.trim()) payload.api_key = d.api_key.trim();
+    // only persist a host when it differs from the auto-detected default
+    if (effective && effective !== defaultBase) payload.base_url = effective;
+    if (Object.keys(payload).length === 0) {
+      toast.info("Nada para salvar — host igual ao padrão e sem chave nova");
+      setSavingCred(null);
+      return;
+    }
     const res = await fetch(`/api/auth/credentials/${provider}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -251,7 +255,8 @@ export function SettingsPanel() {
   const renderCredFields = (provider: string, providerObj: ProviderRegistryEntry | undefined) => {
     const d = credDrafts[provider];
     const c = creds[provider];
-    const host = credHost(providerObj);
+    const host = hostValue(provider, providerObj);
+    const selectedModel = provider === draft.chat_provider ? chatModels.find((m) => m.id === draft.chat_model) : undefined;
     return (
       <div className="space-y-2 rounded-md border px-3 py-3">
         <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -268,24 +273,24 @@ export function SettingsPanel() {
         </div>
         <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
           <div className="space-y-1">
-            <Label className="text-xs">Host (opcional — p/ local/gateway)</Label>
+            <Label className="text-xs">Host (auto-preenchido — edite se quiser)</Label>
             <Input
               placeholder={providerObj?.api ?? "https://..."}
-              value={d?.base_url ?? ""}
+              value={host}
               onChange={(e) => setCredField(provider, "base_url", e.target.value)}
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">API key (opcional)</Label>
+            <Label className="text-xs">API key</Label>
             <Input
               type="password"
-              placeholder={c?.has_api_key ? `••••${c.api_key_last4}` : "••••••••"}
+              placeholder={c?.has_api_key ? `••••${c.api_key_last4}` : "adicione sua key"}
               value={d?.api_key ?? ""}
               onChange={(e) => setCredField(provider, "api_key", e.target.value)}
             />
           </div>
           <div className="flex items-end gap-1">
-            <Button size="sm" onClick={() => saveCred(provider)} disabled={savingCred === provider}>
+            <Button size="sm" onClick={() => saveCred(provider, providerObj)} disabled={savingCred === provider}>
               {savingCred === provider ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Salvar
             </Button>
@@ -300,10 +305,22 @@ export function SettingsPanel() {
             </Button>
           </div>
         </div>
-        {provider === draft.chat_provider && draft.chat_model && (
-          <p className="break-all font-mono text-[11px] text-muted-foreground">
-            endpoint: {endpointOf(providerObj, draft.chat_model, host)}
+        {!c?.has_api_key && (
+          <p className="text-[11px] text-muted-foreground">
+            Adicione sua API key para testar/configurar este provider — ou deixe para usar a do ambiente.
           </p>
+        )}
+        {provider === draft.chat_provider && draft.chat_model && selectedModel && (
+          <div className="space-y-0.5 rounded-md bg-muted px-3 py-2 font-mono text-[11px]">
+            <p>
+              <span className="text-muted-foreground">endpoint:</span>{" "}
+              {endpointOf(providerObj, draft.chat_model, host)}
+            </p>
+            <p>
+              <span className="text-muted-foreground">ai-sdk:</span> {selectedModel.sdk ?? "—"}{" "}
+              <span className="text-muted-foreground">· protocolo:</span> {selectedModel.protocol ?? "chat"}
+            </p>
+          </div>
         )}
       </div>
     );
@@ -357,6 +374,14 @@ export function SettingsPanel() {
                     <SelectItem key={m.id} value={m.id}>
                       {m.label} {m.free ? "(free)" : ""}
                       {protocolBadge(m.protocol)}
+                      {m.cn && (
+                        <span
+                          className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+                          title="Provedor hospedado na China — ativação/desativação via console da plataforma (sem API pública)"
+                        >
+                          CN
+                        </span>
+                      )}
                     </SelectItem>
                   ))}
                 </SelectContent>

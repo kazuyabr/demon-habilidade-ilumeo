@@ -126,6 +126,16 @@ export interface TestResult {
   error?: string | null;
 }
 
+export interface ProviderModel {
+  id: string;
+  label: string;
+  free: boolean;
+  dims: number | null;
+  protocol?: string;
+  sdk?: string;
+  cn?: boolean;
+}
+
 export interface ProviderRegistryEntry {
   id: string;
   label: string;
@@ -133,8 +143,8 @@ export interface ProviderRegistryEntry {
   env_key: string | null;
   chat: boolean;
   embeddings: boolean;
-  chat_models: Array<{ id: string; label: string; free: boolean; dims: number | null; protocol?: string }>;
-  embedding_models: Array<{ id: string; label: string; free: boolean; dims: number | null; protocol?: string }>;
+  chat_models: ProviderModel[];
+  embedding_models: ProviderModel[];
 }
 
 export interface CredentialSummary {
@@ -142,6 +152,7 @@ export interface CredentialSummary {
   has_api_key: boolean;
   api_key_last4: string | null;
   has_base_url: boolean;
+  base_url: string | null;
   updated_at: string | null;
 }
 

@@ -25,6 +25,8 @@ class ModelInfo(TypedDict):
     free: bool
     dims: int | None  # embeddings only
     protocol: Protocol
+    sdk: str  # AI SDK package, per the OpenCode docs endpoint tables
+    cn: bool  # Chinese-hosted provider (activation is a platform-console action)
 
 
 class ProviderInfo(TypedDict):
@@ -38,12 +40,36 @@ class ProviderInfo(TypedDict):
     embedding_models: list[ModelInfo]
 
 
-def _m(id: str, label: str, *, free: bool = False, dims: int | None = None, protocol: Protocol = "chat") -> ModelInfo:
-    return {"id": id, "label": label, "free": free, "dims": dims, "protocol": protocol}
+_SDK_BY_PROTOCOL: dict[Protocol, str] = {
+    "chat": "@ai-sdk/openai-compatible",
+    "responses": "@ai-sdk/openai",
+    "messages": "@ai-sdk/anthropic",
+    "google": "@ai-sdk/google",
+}
 
 
-def _ms(ids: list[str], protocol: Protocol = "chat") -> list[ModelInfo]:
-    return [_m(i, i, protocol=protocol) for i in ids]
+def _m(
+    id: str,
+    label: str,
+    *,
+    free: bool = False,
+    dims: int | None = None,
+    protocol: Protocol = "chat",
+    cn: bool = False,
+) -> ModelInfo:
+    return {
+        "id": id,
+        "label": label,
+        "free": free,
+        "dims": dims,
+        "protocol": protocol,
+        "sdk": _SDK_BY_PROTOCOL.get(protocol, "@ai-sdk/openai-compatible"),
+        "cn": cn,
+    }
+
+
+def _ms(ids: list[str], protocol: Protocol = "chat", cn: bool = False) -> list[ModelInfo]:
+    return [_m(i, i, protocol=protocol, cn=cn) for i in ids]
 
 
 PROVIDERS: list[ProviderInfo] = [
@@ -56,13 +82,13 @@ PROVIDERS: list[ProviderInfo] = [
         "embeddings": False,
         "chat_models": [
             # OpenAI-compatible (chat/completions)
-            *_ms(["deepseek-v4-flash", "deepseek-v4-pro"]),
-            _m("deepseek-v4-flash-free", "deepseek-v4-flash-free", free=True),
-            *_ms(["minimax-m3", "minimax-m2.7", "minimax-m2.5"]),
-            *_ms(["glm-5.2", "glm-5.1", "glm-5"]),
-            *_ms(["kimi-k3", "kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5"]),
-            _m("mimo-v2.5-free", "mimo-v2.5-free", free=True),
-            _m("hy3-free", "hy3-free", free=True),
+            *_ms(["deepseek-v4-flash", "deepseek-v4-pro"], cn=True),
+            _m("deepseek-v4-flash-free", "deepseek-v4-flash-free", free=True, cn=True),
+            *_ms(["minimax-m3", "minimax-m2.7", "minimax-m2.5"], cn=True),
+            *_ms(["glm-5.2", "glm-5.1", "glm-5"], cn=True),
+            *_ms(["kimi-k3", "kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5"], cn=True),
+            _m("mimo-v2.5-free", "mimo-v2.5-free", free=True, cn=True),
+            _m("hy3-free", "hy3-free", free=True, cn=True),
             _m("laguna-s-2.1-free", "laguna-s-2.1-free", free=True),
             _m("big-pickle", "big-pickle", free=True),
             _m("nemotron-3-ultra-free", "nemotron-3-ultra-free", free=True),
@@ -84,11 +110,11 @@ PROVIDERS: list[ProviderInfo] = [
                 [
                     "claude-fable-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7",
                     "claude-opus-4-6", "claude-opus-4-5", "claude-sonnet-5", "claude-sonnet-4-6",
-                    "claude-sonnet-4-5", "claude-haiku-4-5", "qwen3.7-max", "qwen3.7-plus",
-                    "qwen3.6-plus", "qwen3.5-plus",
+                    "claude-sonnet-4-5", "claude-haiku-4-5",
                 ],
                 protocol="messages",
             ),
+            *_ms(["qwen3.7-max", "qwen3.7-plus", "qwen3.6-plus", "qwen3.5-plus"], protocol="messages", cn=True),
             # Gemini (google)
             *_ms(
                 [
@@ -113,8 +139,8 @@ PROVIDERS: list[ProviderInfo] = [
         "embeddings": False,
         "chat_models": [
             # OpenAI-compatible (chat/completions) — baratos/volumosos, ideais p/ agentes/evals
-            *_ms(["mimo-v2.5", "mimo-v2.5-pro", "deepseek-v4-flash", "deepseek-v4-pro", "hy3"]),
-            *_ms(["glm-5.3", "glm-5.2", "glm-5.1", "kimi-k3", "kimi-k2.7-code", "kimi-k2.6"]),
+            *_ms(["mimo-v2.5", "mimo-v2.5-pro", "deepseek-v4-flash", "deepseek-v4-pro", "hy3"], cn=True),
+            *_ms(["glm-5.3", "glm-5.2", "glm-5.1", "kimi-k3", "kimi-k2.7-code", "kimi-k2.6"], cn=True),
             # OpenAI Responses
             *_ms(["grok-4.5", "gpt-5.6-luna"], protocol="responses"),
             # Anthropic Messages
@@ -129,6 +155,7 @@ PROVIDERS: list[ProviderInfo] = [
                     "qwen3.6-plus",
                 ],
                 protocol="messages",
+                cn=True,
             ),
         ],
         "embedding_models": [],
