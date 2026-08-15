@@ -15,6 +15,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/layout/theme-toggle";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -59,7 +60,8 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="p-3">
+      <div className="space-y-1 p-3">
+        <ThemeToggle />
         <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={handleLogout}>
           <LogOut className="mr-2 h-4 w-4" />
           Sair

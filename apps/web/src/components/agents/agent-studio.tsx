@@ -30,7 +30,7 @@ function StepCard({ step }: { step: AgentStep }) {
   return (
     <div className="rounded-lg border p-3">
       <div className="mb-1 flex items-center justify-between">
-        <Badge className={cn(KIND_COLOR[step.kind] ?? "bg-zinc-100")}>
+        <Badge className={cn(KIND_COLOR[step.kind] ?? "bg-zinc-100 dark:bg-zinc-800")}>
           {KIND_LABEL[step.kind] ?? step.kind}
         </Badge>
         <span className="text-[10px] text-muted-foreground">{new Date(step.ts).toLocaleTimeString("pt-BR")}</span>

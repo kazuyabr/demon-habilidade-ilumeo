@@ -15,7 +15,7 @@ e um **agente orquestrado** produz análises multi-etapa com citações → um h
   models.dev). Chat: LM Studio · OpenCode Zen (`mimo-v2.5-free`, grátis) · OpenAI · Anthropic ·
   Google Gemini · Groq · Vertex. Embeddings: LM Studio · fastembed (self-hosted, sem chave) ·
   OpenAI · Vertex — todos em **768 dims** (pgvector `vector(768)` inalterado)
-- **Front**: Next.js 16 (App Router, SSR) · Tailwind 4 · shadcn/ui · TanStack Query
+- **Front**: Next.js 16 (App Router, SSR) · Tailwind 4 · shadcn/ui · TanStack Query · dark mode (default escuro + toggle)
 - **Observabilidade**: OpenTelemetry · **Segurança**: OAuth2 + JWT, RBAC, Argon2, PII redaction
 - **Infra**: docker-compose (stack completa: postgres/redis/migrate/seed/api/worker/web) · Terraform GCP de referência · CI em camadas
 

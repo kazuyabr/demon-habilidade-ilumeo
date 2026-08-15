@@ -20,7 +20,7 @@ function ratingColor(r: string) {
     C: "bg-amber-100 text-amber-700 dark:bg-amber-950",
     D: "bg-red-100 text-red-700 dark:bg-red-950",
   };
-  return map[r] ?? "bg-zinc-100";
+  return map[r] ?? "bg-zinc-100 dark:bg-zinc-800";
 }
 
 const decisionLabel: Record<string, string> = {
