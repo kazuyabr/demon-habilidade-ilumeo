@@ -91,11 +91,11 @@ PROVIDERS: list[ProviderInfo] = [
             # OpenAI-compatible (chat/completions)
             *_ms(["deepseek-v4-flash", "deepseek-v4-pro"], china_gated=True),
             _m("deepseek-v4-flash-free", "deepseek-v4-flash-free", free=True, china_gated=True),
-            *_ms(["minimax-m3", "minimax-m2.7", "minimax-m2.5"], china_gated=True),
-            *_ms(["glm-5.2", "glm-5.1", "glm-5"], china_gated=True),
-            *_ms(["kimi-k3", "kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5"], china_gated=True),
-            _m("mimo-v2.5-free", "mimo-v2.5-free", free=True, china_gated=True),
-            _m("hy3-free", "hy3-free", free=True, china_gated=True),
+            *_ms(["minimax-m3", "minimax-m2.7", "minimax-m2.5"]),
+            *_ms(["glm-5.2", "glm-5.1", "glm-5"]),
+            *_ms(["kimi-k3", "kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5"]),
+            _m("mimo-v2.5-free", "mimo-v2.5-free", free=True),
+            _m("hy3-free", "hy3-free", free=True),
             _m("laguna-s-2.1-free", "laguna-s-2.1-free", free=True),
             _m("big-pickle", "big-pickle", free=True),
             _m("nemotron-3-ultra-free", "nemotron-3-ultra-free", free=True),
@@ -124,7 +124,6 @@ PROVIDERS: list[ProviderInfo] = [
             *_ms(
                 ["qwen3.7-max", "qwen3.7-plus", "qwen3.6-plus", "qwen3.5-plus"],
                 protocol="messages",
-                china_gated=True,
             ),
             # Gemini (google)
             *_ms(
@@ -150,8 +149,9 @@ PROVIDERS: list[ProviderInfo] = [
         "embeddings": False,
         "chat_models": [
             # OpenAI-compatible (chat/completions) — baratos/volumosos, ideais p/ agentes/evals
-            *_ms(["mimo-v2.5", "mimo-v2.5-pro", "deepseek-v4-flash", "deepseek-v4-pro", "hy3"], china_gated=True),
-            *_ms(["glm-5.3", "glm-5.2", "glm-5.1", "kimi-k3", "kimi-k2.7-code", "kimi-k2.6"], china_gated=True),
+            *_ms(["mimo-v2.5", "mimo-v2.5-pro", "hy3"]),
+            *_ms(["deepseek-v4-flash", "deepseek-v4-pro"], china_gated=True),
+            *_ms(["glm-5.3", "glm-5.2", "glm-5.1", "kimi-k3", "kimi-k2.7-code", "kimi-k2.6"]),
             # OpenAI Responses
             *_ms(["grok-4.5", "gpt-5.6-luna"], protocol="responses"),
             # Anthropic Messages
@@ -166,7 +166,6 @@ PROVIDERS: list[ProviderInfo] = [
                     "qwen3.6-plus",
                 ],
                 protocol="messages",
-                china_gated=True,
             ),
         ],
         "embedding_models": [],

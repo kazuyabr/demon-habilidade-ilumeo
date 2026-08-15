@@ -73,10 +73,11 @@ trivial.
 ## Chinese-provider models (Go gating)
 
 The docs state Zen hosts all models in the US and Go provides global access; the `/models`
-API does not expose hosting region. Models from Chinese providers (`deepseek-*`, `qwen-*`,
-`glm-*`, `kimi-*`, `minimax-*`, `mimo-*`, `hy3`) may require enabling **"models hosted in
-China"** on the Go subscription when a call fails with a permission error. The UI marks
-these models and, on a permission-like connection failure, guides the client to
+API does not expose hosting region. Empirically (observed in testing), **only DeepSeek**
+(`deepseek-v4-flash`/`deepseek-v4-pro` on Go and Zen, plus `deepseek-v4-flash-free` on Zen)
+has failed with a permission error until **"models hosted in China"** is enabled on the Go
+subscription; MiMo, Qwen, GLM, Kimi, MiniMax and Hy3 did not. The UI marks only these
+models and, on a permission-like connection failure, guides the client to
 `opencode.ai/auth` instead of showing a raw error.
 
 ## Why separate chat and embeddings
