@@ -521,7 +521,6 @@ export function EvalStudio() {
   const [runDefinition, setRunDefinition] = useState<EvalDefinitionDetail | null>(null);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
   const [runTarget, setRunTarget] = useState<EvalDefinition | null>(null);
   const [editTarget, setEditTarget] = useState<EvalDefinitionDetail | null | "new">(null);
 
@@ -535,7 +534,8 @@ export function EvalStudio() {
     if (runRes.ok) {
       const list = (await runRes.json()) as EvalRun[];
       setRuns(list);
-      setRunning(list.some((r) => r.status === "running"));
+      // keep the selected run in sync so metrics/status refresh on poll
+      setSelectedRun((prev) => (prev ? list.find((r) => r.id === prev.id) ?? prev : prev));
     }
     if (docRes.ok) setDocuments((await docRes.json()) as DocumentItem[]);
     setLoading(false);
@@ -749,16 +749,25 @@ export function EvalStudio() {
                         <CardContent>
                           {Object.keys(metrics).length === 0 ? (
                             <p className="text-sm text-muted-foreground">
-                              {running ? "Aguardando resultado…" : "Sem métricas ainda."}
+                              {selectedRun.status === "failed"
+                                ? selectedRun.error_message ?? "Falha na execução"
+                                : selectedRun.status === "running"
+                                  ? "Aguardando resultado…"
+                                  : "Sem métricas ainda."}
                             </p>
                           ) : (
-                            <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-                              {Object.entries(metrics)
-                                .filter(([k]) => k in METRIC_LABELS)
-                                .map(([k, v]) => (
-                                  <Metric key={k} label={METRIC_LABELS[k]} value={v} />
-                                ))}
-                            </div>
+                            <>
+                              {selectedRun.status === "failed" && selectedRun.error_message && (
+                                <p className="mb-3 text-xs text-destructive">{selectedRun.error_message}</p>
+                              )}
+                              <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                                {Object.entries(metrics)
+                                  .filter(([k]) => k in METRIC_LABELS)
+                                  .map(([k, v]) => (
+                                    <Metric key={k} label={METRIC_LABELS[k]} value={v} />
+                                  ))}
+                              </div>
+                            </>
                           )}
                         </CardContent>
                       </Card>
