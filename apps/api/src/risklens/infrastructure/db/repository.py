@@ -126,9 +126,7 @@ async def create_extraction(
 
 async def get_extraction_by_document(document_id: UUID) -> m.Extraction | None:
     async with SessionFactory() as session:
-        result = await session.execute(
-            select(m.Extraction).where(m.Extraction.document_id == document_id)
-        )
+        result = await session.execute(select(m.Extraction).where(m.Extraction.document_id == document_id))
         return result.scalar_one_or_none()
 
 
@@ -179,9 +177,7 @@ async def get_agent_run(run_id: UUID) -> m.AgentRun | None:
 
 async def list_agent_runs(limit: int = 20) -> list[m.AgentRun]:
     async with SessionFactory() as session:
-        result = await session.execute(
-            select(m.AgentRun).order_by(m.AgentRun.created_at.desc()).limit(limit)
-        )
+        result = await session.execute(select(m.AgentRun).order_by(m.AgentRun.created_at.desc()).limit(limit))
         return list(result.scalars().all())
 
 
@@ -218,9 +214,9 @@ async def finish_agent_run(
 # --- eval runs ---
 
 
-async def create_eval_run(name: str, model_used: str) -> m.EvalRun:
+async def create_eval_run(name: str, model_used: str, definition_id: UUID | None = None) -> m.EvalRun:
     async with SessionFactory() as session:
-        run = m.EvalRun(name=name, model_used=model_used, status="running")
+        run = m.EvalRun(name=name, model_used=model_used, status="running", definition_id=definition_id)
         session.add(run)
         await session.commit()
         await session.refresh(run)
@@ -258,3 +254,78 @@ async def finish_eval_run(
         if error_message is not None:
             run.error_message = error_message
         await session.commit()
+
+
+async def has_running_eval_run(definition_id: UUID) -> bool:
+    """True if the definition has any run still in progress (delete guard)."""
+    async with SessionFactory() as session:
+        result = await session.execute(
+            select(m.EvalRun.id).where(m.EvalRun.definition_id == definition_id, m.EvalRun.status == "running").limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+
+# --- eval definitions ---
+
+
+async def list_eval_definitions(limit: int = 100) -> list[m.EvalDefinition]:
+    async with SessionFactory() as session:
+        result = await session.execute(
+            select(m.EvalDefinition).order_by(m.EvalDefinition.created_at.desc()).limit(limit)
+        )
+        return list(result.scalars().all())
+
+
+async def get_eval_definition_by_id(definition_id: UUID) -> m.EvalDefinition | None:
+    async with SessionFactory() as session:
+        return await session.get(m.EvalDefinition, definition_id)
+
+
+async def get_eval_definition_by_slug(slug: str) -> m.EvalDefinition | None:
+    async with SessionFactory() as session:
+        result = await session.execute(select(m.EvalDefinition).where(m.EvalDefinition.slug == slug).limit(1))
+        return result.scalar_one_or_none()
+
+
+async def create_eval_definition(
+    *,
+    slug: str,
+    title: str,
+    schema_name: str,
+    cases: list,
+    description: str | None = None,
+    created_by: UUID | None = None,
+) -> m.EvalDefinition:
+    async with SessionFactory() as session:
+        definition = m.EvalDefinition(
+            slug=slug,
+            title=title,
+            description=description,
+            schema_name=schema_name,
+            cases=cases,
+            created_by=created_by,
+        )
+        session.add(definition)
+        await session.commit()
+        await session.refresh(definition)
+        return definition
+
+
+async def update_eval_definition(definition_id: UUID, **fields) -> m.EvalDefinition | None:
+    async with SessionFactory() as session:
+        definition = await session.get(m.EvalDefinition, definition_id)
+        if definition is None:
+            return None
+        for key, value in fields.items():
+            setattr(definition, key, value)
+        await session.commit()
+        await session.refresh(definition)
+        return definition
+
+
+async def delete_eval_definition(definition_id: UUID) -> None:
+    async with SessionFactory() as session:
+        definition = await session.get(m.EvalDefinition, definition_id)
+        if definition is not None:
+            await session.delete(definition)
+            await session.commit()

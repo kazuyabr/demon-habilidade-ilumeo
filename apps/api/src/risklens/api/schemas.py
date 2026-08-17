@@ -114,7 +114,10 @@ class AgentStepEvent(BaseModel):
 
 
 class EvalRunCreate(BaseModel):
-    name: str = Field(default="credit-report-golden", min_length=3)
+    name: str | None = Field(default=None, min_length=3, max_length=128)
+    definition_id: UUID | None = None
+    provider: str | None = None  # override do modelo do run (default = ativo)
+    model: str | None = None
 
 
 class EvalRunOut(BaseModel):
@@ -122,12 +125,59 @@ class EvalRunOut(BaseModel):
 
     id: UUID
     name: str
+    definition_id: UUID | None = None
     status: str
     model_used: str | None
     metrics: dict | None
     items: list
     error_message: str | None = None
     created_at: datetime
+
+
+class EvalCase(BaseModel):
+    document_file: str | None = None  # nome do snapshot (ex.: nome do doc de origem)
+    document_text: str
+    expected: dict
+
+
+class EvalDefinitionCreate(BaseModel):
+    slug: str = Field(min_length=3, max_length=64, pattern=r"^[a-z0-9-]+$")
+    title: str = Field(min_length=3, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    schema_name: str = "credit_report"
+    cases: list[EvalCase] = Field(min_length=1)
+
+
+class EvalDefinitionUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=3, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    schema_name: str | None = None
+    cases: list[EvalCase] | None = None
+
+
+class EvalDefinitionOut(BaseModel):
+    id: UUID
+    slug: str
+    title: str
+    description: str | None = None
+    schema_name: str
+    n_cases: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class EvalDefinitionDetail(EvalDefinitionOut):
+    cases: list[EvalCase] = Field(default_factory=list)
+
+
+class EvalValidateIn(BaseModel):
+    schema_name: str = "credit_report"
+    expected: dict
+
+
+class EvalValidateOut(BaseModel):
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
 
 
 class FeatureFlagsOut(BaseModel):

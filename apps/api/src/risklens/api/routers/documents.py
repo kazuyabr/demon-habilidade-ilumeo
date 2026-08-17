@@ -1,13 +1,15 @@
-"""Document routes: upload (queued ingestion), list, detail, delete."""
+"""Document routes: upload (queued ingestion), list, detail, text, delete."""
 
 from __future__ import annotations
 
 import contextlib
+import io
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pypdf import PdfReader
 
-from risklens.api.deps import get_current_user, get_job_queue, get_storage
+from risklens.api.deps import get_current_user, get_job_queue, get_storage, require_roles
 from risklens.api.schemas import DocumentOut, UploadResponse
 from risklens.application.services.ingestion_service import ValidationError_, ingest_upload
 from risklens.infrastructure.db import repository as repo
@@ -25,9 +27,7 @@ async def upload_document(
     queue=Depends(get_job_queue),
 ) -> UploadResponse:
     try:
-        doc, duplicate = await ingest_upload(
-            storage, queue, file, user_id=user.id, source=source
-        )
+        doc, duplicate = await ingest_upload(storage, queue, file, user_id=user.id, source=source)
     except ValidationError_ as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
 
@@ -53,6 +53,25 @@ async def get_document(
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento não encontrado")
     return DocumentOut.model_validate(doc)
+
+
+@router.get("/{document_id}/text")
+async def get_document_text(
+    document_id: UUID,
+    _: User = Depends(require_roles("admin", "analyst")),
+    storage=Depends(get_storage),
+) -> dict:
+    """Raw text snapshot — used to seed an eval case from an uploaded document."""
+    doc = await repo.get_document_by_id(document_id)
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento não encontrado")
+    data = await storage.read(doc.storage_path)
+    if doc.content_type == "pdf":
+        reader = PdfReader(io.BytesIO(data))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    else:
+        text = data.decode("utf-8", errors="replace")
+    return {"document_id": str(doc.id), "filename": doc.filename, "text": text}
 
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
