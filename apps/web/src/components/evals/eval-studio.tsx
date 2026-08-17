@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -35,17 +35,17 @@ import type {
 } from "@/lib/types";
 
 const METRIC_LABELS: Record<string, string> = {
-  decision_accuracy: "Acerto de decisÃ£o",
+  decision_accuracy: "Acerto de decisão",
   field_exact_accuracy: "Acerto exato de campos",
   field_fuzzy_similarity: "Similaridade fuzzy",
   redflag_recall: "Recall de red flags",
-  score_mae: "Erro mÃ©dio de score",
-  llm_judge_score: "Nota LLM judge (0â€“5)",
+  score_mae: "Erro médio de score",
+  llm_judge_score: "Nota LLM judge (0–5)",
   n_cases: "Casos",
 };
 
 function Metric({ label, value }: { label: string; value: unknown }) {
-  let display = String(value ?? "â€”");
+  let display = String(value ?? "—");
   let highlight = false;
   if (typeof value === "number") {
     if (label.includes("accuracy") || label.includes("recall") || label.includes("similarity")) {
@@ -92,7 +92,7 @@ function useModelOptions() {
               value: `${p.id}::${m.id}`,
               provider: p.id,
               model: m.id,
-              label: `${p.label} Â· ${m.label}${m.free ? " (free)" : ""}`,
+              label: `${p.label} · ${m.label}${m.free ? " (free)" : ""}`,
               free: m.free,
             });
           }
@@ -106,7 +106,7 @@ function useModelOptions() {
         }
       })
       .catch(() => {
-        /* providers unavailable â€” run will fall back to the active model */
+        /* providers unavailable — run will fall back to the active model */
       });
     return () => {
       active = false;
@@ -153,13 +153,13 @@ function RunDialog({
         <DialogHeader>
           <DialogTitle>Rodar {definition.title}</DialogTitle>
           <DialogDescription>
-            {definition.n_cases} casos Â· schema {definition.schema_name}. Escolha o modelo (default = ativo).
+            {definition.n_cases} casos · schema {definition.schema_name}. Escolha o modelo (default = ativo).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           <Label htmlFor="run-model">Provider / modelo</Label>
           {options.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Usando o modelo ativo (sem seletor disponÃ­vel)â€¦</p>
+            <p className="text-xs text-muted-foreground">Usando o modelo ativo (sem seletor disponível)…</p>
           ) : (
             <Select value={activeValue} onValueChange={setValue}>
               <SelectTrigger className="w-full">
@@ -272,7 +272,7 @@ function DefinitionFormDialog({
       expected = JSON.parse(cases[i].expectedJson);
     } catch {
       updateCase(i, { valid: false });
-      toast.error(`Caso ${i + 1}: JSON invÃ¡lido`);
+      toast.error(`Caso ${i + 1}: JSON inválido`);
       return;
     }
     const res = await fetch("/api/evals/definitions/validate", {
@@ -301,7 +301,7 @@ function DefinitionFormDialog({
         try {
           expected = JSON.parse(c.expectedJson);
         } catch {
-          toast.error(`Caso ${i + 1}: JSON do expected invÃ¡lido`);
+          toast.error(`Caso ${i + 1}: JSON do expected inválido`);
           return;
         }
         payloadCases.push({
@@ -330,25 +330,25 @@ function DefinitionFormDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{editing ? `Editar ${definition.title}` : "Nova definiÃ§Ã£o de eval"}</DialogTitle>
+          <DialogTitle>{editing ? `Editar ${definition.title}` : "Nova definição de eval"}</DialogTitle>
           <DialogDescription>
-            Golden set com casos (texto + expected) que o pipeline de extraÃ§Ã£o roda para medir regressÃµes.
+            Golden set com casos (texto + expected) que o pipeline de extração roda para medir regressões.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="def-title">TÃ­tulo</Label>
-            <Input id="def-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Credit report â€” varejo" />
+            <Label htmlFor="def-title">Título</Label>
+            <Input id="def-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Credit report — varejo" />
           </div>
           {!editing && (
             <div className="space-y-2">
-              <Label htmlFor="def-slug">Slug (Ãºnico, a-z0-9-)</Label>
+              <Label htmlFor="def-slug">Slug (único, a-z0-9-)</Label>
               <Input id="def-slug" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="credit-report-varejo" />
             </div>
           )}
           <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="def-desc">DescriÃ§Ã£o</Label>
+            <Label htmlFor="def-desc">Descrição</Label>
             <Input id="def-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Opcional" />
           </div>
           <div className="space-y-2">
@@ -401,7 +401,7 @@ function DefinitionFormDialog({
                   <div className="flex items-center gap-2">
                     <Select value="" onValueChange={(v) => v && loadDocumentText(i, v)}>
                       <SelectTrigger className="w-64">
-                        <SelectValue placeholder="Escolher documentoâ€¦" />
+                        <SelectValue placeholder="Escolher documento…" />
                       </SelectTrigger>
                       <SelectContent>
                         {documents.map((d) => (
@@ -419,7 +419,7 @@ function DefinitionFormDialog({
               <Textarea
                 value={c.document_text}
                 onChange={(e) => updateCase(i, { document_text: e.target.value })}
-                placeholder="Texto do documento (snapshot do caso)â€¦"
+                placeholder="Texto do documento (snapshot do caso)…"
                 rows={4}
                 className="font-mono text-xs"
               />
@@ -438,7 +438,7 @@ function DefinitionFormDialog({
               </div>
               {c.valid !== null && (
                 <p className={cn("text-xs", c.valid ? "text-emerald-600" : "text-destructive")}>
-                  {c.valid ? "Expected vÃ¡lido contra o schema" : "Expected invÃ¡lido contra o schema"}
+                  {c.valid ? "Expected válido contra o schema" : "Expected inválido contra o schema"}
                 </p>
               )}
             </div>
@@ -451,7 +451,7 @@ function DefinitionFormDialog({
           </Button>
           <Button onClick={submit} disabled={busy}>
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {editing ? "Salvar alteraÃ§Ãµes" : "Criar definiÃ§Ã£o"}
+            {editing ? "Salvar alterações" : "Criar definição"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -482,9 +482,9 @@ function CaseRow({ item, expected }: { item: EvalItem; expected?: EvalCase }) {
 
       {m && (
         <p className="mt-1 text-xs text-muted-foreground">
-          decisÃ£o: {String(m.decision_match)} Â· fuzzy: {(m.fuzzy ?? 0).toFixed(2)} Â· recall red flags:{" "}
+          decisão: {String(m.decision_match)} · fuzzy: {(m.fuzzy ?? 0).toFixed(2)} · recall red flags:{" "}
           {(m.redflag_recall ?? 0).toFixed(2)}
-          {typeof m.score_mae === "number" && ` Â· |Î”score|: ${m.score_mae}`}
+          {typeof m.score_mae === "number" && ` · |Δscore|: ${m.score_mae}`}
         </p>
       )}
       {item.error && <p className="mt-1 text-xs text-destructive">{String(item.error)}</p>}
@@ -542,7 +542,7 @@ export function EvalStudio() {
   }, []);
 
   useEffect(() => {
-    // initial data load + polling â€” setState happens after an await
+    // initial data load + polling — setState happens after an await
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     const id = setInterval(load, 4000);
@@ -601,10 +601,10 @@ export function EvalStudio() {
       });
       const body = await res.json();
       if (!res.ok) {
-        toast.error(body.detail ?? "Falha ao criar definiÃ§Ã£o");
+        toast.error(body.detail ?? "Falha ao criar definição");
         throw new Error("create_failed");
       }
-      toast.success("DefiniÃ§Ã£o criada");
+      toast.success("Definição criada");
     } else if (editTarget) {
       const res = await fetch(`/api/evals/definitions/${editTarget.id}`, {
         method: "PATCH",
@@ -613,23 +613,23 @@ export function EvalStudio() {
       });
       const body = await res.json();
       if (!res.ok) {
-        toast.error(body.detail ?? "Falha ao salvar definiÃ§Ã£o");
+        toast.error(body.detail ?? "Falha ao salvar definição");
         throw new Error("update_failed");
       }
-      toast.success("DefiniÃ§Ã£o salva");
+      toast.success("Definição salva");
     }
     await load();
   }
 
   async function deleteDefinition(def: EvalDefinition) {
-    if (!window.confirm(`Excluir "${def.title}"? Os runs anteriores sÃ£o preservados.`)) return;
+    if (!window.confirm(`Excluir "${def.title}"? Os runs anteriores são preservados.`)) return;
     const res = await fetch(`/api/evals/definitions/${def.id}`, { method: "DELETE" });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
-      toast.error(body?.detail ?? "Falha ao excluir (pode haver execuÃ§Ã£o em andamento)");
+      toast.error(body?.detail ?? "Falha ao excluir (pode haver execução em andamento)");
       return;
     }
-    toast.success("DefiniÃ§Ã£o excluÃ­da");
+    toast.success("Definição excluída");
     await load();
   }
 
@@ -641,23 +641,23 @@ export function EvalStudio() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as "definitions" | "runs")}>
         <div className="flex items-center justify-between gap-4">
           <TabsList>
-            <TabsTrigger value="definitions">DefiniÃ§Ãµes ({definitions.length})</TabsTrigger>
-            <TabsTrigger value="runs">ExecuÃ§Ãµes ({runs.length})</TabsTrigger>
+            <TabsTrigger value="definitions">Definições ({definitions.length})</TabsTrigger>
+            <TabsTrigger value="runs">Execuções ({runs.length})</TabsTrigger>
           </TabsList>
           <Button onClick={() => setEditTarget("new")}>
             <Plus className="mr-2 h-4 w-4" />
-            Nova definiÃ§Ã£o
+            Nova definição
           </Button>
         </div>
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">Carregandoâ€¦</p>
+          <p className="text-sm text-muted-foreground">Carregando…</p>
         ) : (
           <>
             <TabsContent value="definitions" className="space-y-4">
               {definitions.length === 0 && (
                 <p className="text-sm text-muted-foreground">
-                  Nenhuma definiÃ§Ã£o. Crie uma ou rode o seed (risklens-seed --with-evals).
+                  Nenhuma definição. Crie uma ou rode o seed (risklens-seed --with-evals).
                 </p>
               )}
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -666,7 +666,7 @@ export function EvalStudio() {
                     <CardHeader>
                       <CardTitle className="text-sm">{d.title}</CardTitle>
                       <p className="text-xs text-muted-foreground">
-                        {d.slug} Â· schema {d.schema_name} Â· {d.n_cases} casos
+                        {d.slug} · schema {d.schema_name} · {d.n_cases} casos
                       </p>
                     </CardHeader>
                     <CardContent className="space-y-3">
@@ -702,7 +702,7 @@ export function EvalStudio() {
               <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
                 <Card className="h-fit">
                   <CardHeader>
-                    <CardTitle className="text-sm">ExecuÃ§Ãµes</CardTitle>
+                    <CardTitle className="text-sm">Execuções</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     {runs.map((r) => (
@@ -729,12 +729,12 @@ export function EvalStudio() {
                                   : "bg-blue-500",
                             )}
                           />
-                          {r.status} Â· {new Date(r.created_at).toLocaleTimeString("pt-BR")}
+                          {r.status} · {new Date(r.created_at).toLocaleTimeString("pt-BR")}
                         </p>
                         {r.model_used && <p className="mt-0.5 text-xs text-muted-foreground">modelo: {r.model_used}</p>}
                       </button>
                     ))}
-                    {runs.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma execuÃ§Ã£o ainda.</p>}
+                    {runs.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma execução ainda.</p>}
                   </CardContent>
                 </Card>
 
@@ -749,7 +749,7 @@ export function EvalStudio() {
                         <CardContent>
                           {Object.keys(metrics).length === 0 ? (
                             <p className="text-sm text-muted-foreground">
-                              {running ? "Aguardando resultadoâ€¦" : "Sem mÃ©tricas ainda."}
+                              {running ? "Aguardando resultado…" : "Sem métricas ainda."}
                             </p>
                           ) : (
                             <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
@@ -777,7 +777,7 @@ export function EvalStudio() {
                             <div className="flex items-center gap-2 pt-1">
                               <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
                               <span className="text-xs text-muted-foreground">
-                                Clique em um caso para comparar esperado Ã— real.
+                                Clique em um caso para comparar esperado × real.
                               </span>
                             </div>
                           </CardContent>
@@ -787,7 +787,7 @@ export function EvalStudio() {
                   ) : (
                     <Card>
                       <CardContent className="py-16 text-center text-sm text-muted-foreground">
-                        Selecione uma execuÃ§Ã£o ou rode um eval na aba DefiniÃ§Ãµes.
+                        Selecione uma execução ou rode um eval na aba Definições.
                       </CardContent>
                     </Card>
                   )}
