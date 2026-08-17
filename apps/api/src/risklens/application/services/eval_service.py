@@ -1,30 +1,35 @@
 """Eval harness: regression quality measurement for structured extraction.
 
 Runs the SAME extraction pipeline used in production over a golden set of
-documents with expected JSON, then computes metrics. This is how a model/
-prompt change is gated before deploy — the LLM-regression story.
+cases with expected JSON (an ``eval definition``), then computes metrics.
+This is how a model/prompt change is gated before deploy — the LLM-regression
+story. The comparison is **schema-agnostic**: it introspects the Pydantic
+schema so any extraction template in ``SCHEMA_REGISTRY`` can be evaluated.
 
-Metrics:
-- field_exact_accuracy   fraction of fields that match exactly
-- field_fuzzy_similarity mean token-Jaccard across string fields
-- score_mae              mean absolute error on overall_risk_score
-- decision_accuracy      decision match rate
-- redflag_recall         red flags found / expected
+Metrics (same names as the previous credit-only version):
+- field_exact_accuracy   fraction of scalar fields that match exactly
+- field_fuzzy_similarity mean token-Jaccard across scalar fields
+- score_mae              mean absolute error on the numeric score field
+- decision_accuracy      decision field match rate
+- redflag_recall         list-field recall (items matched by a key, e.g. "flag")
 - llm_judge_score        (feature flag) 0-5 grading by the LLM itself
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from types import UnionType
+from typing import Literal, Union, get_args, get_origin
 from uuid import UUID
 
 from risklens.application.ports import LLMProvider
 from risklens.application.services.extraction_service import extract_from_text
-from risklens.core.config import settings
-from risklens.domain.schemas import CreditRiskReport
+from risklens.domain.schemas import SCHEMA_REGISTRY
 from risklens.infrastructure.ai import runtime
 from risklens.infrastructure.db import repository as repo
+
+_SCALAR_TYPES = {str, int, float, bool}
+_LIST_KEY_PREFERENCES = ("flag", "name", "factor", "key", "label", "title")
 
 
 def _jaccard(a: str, b: str) -> float:
@@ -35,30 +40,106 @@ def _jaccard(a: str, b: str) -> float:
     return len(ta & tb) / len(ta | tb)
 
 
-def _compare(expected: dict, actual: dict) -> dict:
-    fields = ["company_name", "sector", "analysis_date", "risk_rating", "recommended_limit"]
-    exact = [f for f in fields if expected.get(f) == actual.get(f)]
-    fuzz = [_jaccard(str(expected.get(f, "") or ""), str(actual.get(f, "") or "")) for f in fields]
+def _union_args(ann):
+    origin = get_origin(ann)
+    if origin in (Union, UnionType):
+        return [a for a in get_args(ann) if a is not type(None)]
+    return None
 
-    exp_score = expected.get("overall_risk_score")
-    act_score = actual.get("overall_risk_score")
-    score_ok = isinstance(exp_score, (int, float)) and isinstance(act_score, (int, float))
-    score_mae = abs(float(exp_score) - float(act_score)) if score_ok else None
 
-    exp_flags = {str(f.get("flag", "")).lower() for f in expected.get("red_flags", [])}
-    act_flags = {str(f.get("flag", "")).lower() for f in actual.get("red_flags", [])}
-    matched = exp_flags & act_flags
-    recall = len(matched) / len(exp_flags) if exp_flags else 1.0
+def _is_scalar(t) -> bool:
+    if t in _SCALAR_TYPES:
+        return True
+    return get_origin(t) is Literal
+
+
+def _scalar_field_names(model_cls) -> list[str]:
+    """Names of fields holding a single scalar (str/int/float/bool/Literal/Optional)."""
+    names = []
+    for name, field in model_cls.model_fields.items():
+        args = _union_args(field.annotation)
+        candidates = args if args is not None else [field.annotation]
+        if candidates and all(_is_scalar(t) for t in candidates):
+            names.append(name)
+    return names
+
+
+def _list_field_items(model_cls) -> dict[str, type | None]:
+    """Name -> item type for list-typed fields (None when the item is primitive)."""
+    out = {}
+    for name, field in model_cls.model_fields.items():
+        origin = get_origin(field.annotation)
+        if origin is list:
+            out[name] = get_args(field.annotation)[0]
+    return out
+
+
+def _item_key(item_cls) -> str | None:
+    """Field used to compare list items by identity (e.g. RedFlag.flag)."""
+    if not isinstance(item_cls, type) or not hasattr(item_cls, "model_fields"):
+        return None
+    fields = item_cls.model_fields
+    for preferred in _LIST_KEY_PREFERENCES:
+        if preferred in fields:
+            return preferred
+    for name, field in fields.items():
+        if _is_scalar(field.annotation) or (
+            _union_args(field.annotation) and all(_is_scalar(t) for t in _union_args(field.annotation))
+        ):
+            return name
+    return None
+
+
+def _extract_keys(items: list, key: str | None) -> set[str]:
+    out = set()
+    for item in items:
+        if isinstance(item, dict) and key and key in item:
+            out.add(str(item[key]).lower())
+        else:
+            out.add(str(item).lower())
+    return out
+
+
+def _compare(expected: dict, actual: dict, model_cls) -> dict:
+    """Per-case metrics. ``expected``/``actual`` are dumped dicts of the schema."""
+    scalars = _scalar_field_names(model_cls)
+    exact = [f for f in scalars if expected.get(f) == actual.get(f)]
+    fuzz = [_jaccard(str(expected.get(f, "") or ""), str(actual.get(f, "") or "")) for f in scalars]
+
+    score_field = next(
+        (f for f in scalars if f in ("overall_risk_score", "score", "risk_score")),
+        (scalars[0] if scalars else None),
+    )
+    score_mae: float | None = None
+    if score_field is not None:
+        exp_score, act_score = expected.get(score_field), actual.get(score_field)
+        if isinstance(exp_score, (int, float)) and isinstance(act_score, (int, float)):
+            score_mae = abs(float(exp_score) - float(act_score))
+
+    decision_field = next((f for f in scalars if f == "decision"), None)
+    decision_match = decision_field is not None and expected.get(decision_field) == actual.get(decision_field)
+
+    list_items = _list_field_items(model_cls)
+    rf_field = next((f for f in list_items if f in ("red_flags", "flags", "alerts")), None)
+    rf_expected = rf_found = 0
+    recall = 1.0
+    if rf_field is not None:
+        key = _item_key(list_items[rf_field])
+        exp_flags = _extract_keys(expected.get(rf_field) or [], key)
+        act_flags = _extract_keys(actual.get(rf_field) or [], key)
+        rf_expected, rf_found = len(exp_flags), len(act_flags)
+        matched = exp_flags & act_flags
+        recall = len(matched) / len(exp_flags) if exp_flags else 1.0
 
     return {
         "field_exact": len(exact),
-        "field_total": len(fields),
+        "field_total": len(scalars),
         "fuzzy": round(sum(fuzz) / len(fuzz), 4) if fuzz else 0.0,
         "score_mae": round(score_mae, 1) if score_mae is not None else None,
-        "decision_match": expected.get("decision") == actual.get("decision"),
+        "decision_match": decision_match,
         "redflag_recall": round(recall, 4),
-        "redflag_expected": len(exp_flags),
-        "redflag_found": len(act_flags),
+        "redflag_expected": rf_expected,
+        "redflag_found": rf_found,
     }
 
 
@@ -83,14 +164,24 @@ async def _llm_judge(llm: LLMProvider, *, expected: dict, actual: dict) -> float
         return 0.0
 
 
-async def run_eval(llm: LLMProvider, *, eval_run_id: UUID, name: str) -> dict:
-    golden_dir = Path(settings.samples_dir) / "golden"
-    doc_dir = Path(settings.samples_dir) / "documents"
-    golden_file = golden_dir / "credit_report.json"
-    if not golden_file.exists():
-        raise FileNotFoundError(f"golden set not found: {golden_file}")
+async def run_eval(
+    llm: LLMProvider,
+    *,
+    eval_run_id: UUID,
+    name: str,
+    cases: list[dict],
+    schema_name: str = "credit_report",
+) -> dict:
+    """Run the extraction pipeline over a definition's cases and persist metrics.
 
-    cases = json.loads(golden_file.read_text(encoding="utf-8"))
+    ``cases`` come from an ``EvalDefinition`` row: each has ``document_text``
+    (snapshot) and ``expected``. No filesystem dependency — definitions are
+    managed by the client via the panel.
+    """
+    schema_cls = SCHEMA_REGISTRY.get(schema_name)
+    if schema_cls is None:
+        raise ValueError(f"schema desconhecido: {schema_name}")
+
     items: list[dict] = []
     agg = {
         "field_exact_accuracy": 0.0,
@@ -109,14 +200,24 @@ async def run_eval(llm: LLMProvider, *, eval_run_id: UUID, name: str) -> dict:
     judge_sum = 0.0
     judge_n = 0
 
-    for case in cases:
-        src = doc_dir / case["document_file"]
-        text = src.read_text(encoding="utf-8") if src.exists() else ""
-        expected = CreditRiskReport.model_validate(case["expected"]).model_dump()
-        result: dict = {"case": case["document_file"], "status": "completed"}
+    for index, case in enumerate(cases):
+        src_name = case.get("document_file") or f"caso {index + 1}"
+        text = case.get("document_text") or ""
+        if not text:
+            items.append(
+                {
+                    "case": src_name,
+                    "index": index,
+                    "status": "failed",
+                    "error": "document_text vazio",
+                }
+            )
+            continue
+        result: dict = {"case": src_name, "index": index, "status": "completed"}
         try:
-            actual, _, _ = await extract_from_text(llm, text=text, schema_name="credit_report")
-            cmp = _compare(expected, actual)
+            expected = schema_cls.model_validate(case["expected"]).model_dump()
+            actual, _, _ = await extract_from_text(llm, text=text, schema_name=schema_name)
+            cmp = _compare(expected, actual, schema_cls)
             result["metrics"] = cmp
             result["actual"] = actual
 
@@ -139,7 +240,6 @@ async def run_eval(llm: LLMProvider, *, eval_run_id: UUID, name: str) -> dict:
         except Exception as exc:
             result["status"] = "failed"
             result["error"] = str(exc)[:500]
-            recall_sum += 0.0
         items.append(result)
 
     n = len(cases)
@@ -154,7 +254,5 @@ async def run_eval(llm: LLMProvider, *, eval_run_id: UUID, name: str) -> dict:
 
     failed = sum(1 for i in items if i["status"] == "failed")
     final_status = "completed" if failed == 0 else "completed_with_failures"
-    await repo.finish_eval_run(
-        eval_run_id, status=final_status, metrics=agg, items=items
-    )
+    await repo.finish_eval_run(eval_run_id, status=final_status, metrics=agg, items=items)
     return agg

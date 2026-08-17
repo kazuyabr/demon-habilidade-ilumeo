@@ -80,12 +80,39 @@ export interface AgentRun {
 export interface EvalRun {
   id: string;
   name: string;
+  definition_id: string | null;
   status: string;
   model_used: string | null;
   metrics: Record<string, unknown> | null;
   items: Array<Record<string, unknown>>;
   error_message: string | null;
   created_at: string;
+}
+
+export interface EvalCase {
+  document_file: string | null;
+  document_text: string;
+  expected: Record<string, unknown>;
+}
+
+export interface EvalDefinition {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  schema_name: string;
+  n_cases: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EvalDefinitionDetail extends EvalDefinition {
+  cases: EvalCase[];
+}
+
+export interface EvalValidateResult {
+  valid: boolean;
+  errors: string[];
 }
 
 export interface FeatureFlags {
@@ -220,8 +247,10 @@ export interface EvalItemMetrics {
 
 export interface EvalItem {
   case?: string;
+  index?: number;
   status?: string;
   error?: string;
   metrics?: EvalItemMetrics;
   actual?: Record<string, unknown>;
+  llm_judge?: number;
 }

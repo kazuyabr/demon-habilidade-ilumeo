@@ -5,7 +5,8 @@ decisões de risco complexas a partir de dados não estruturados. Um analista so
 relatórios de due diligence → o sistema extrai um perfil de risco estruturado (com
 redação de PII) → indexa o conteúdo para RAG (pgvector) → gestores fazem perguntas
 e um **agente orquestrado** produz análises multi-etapa com citações → um harness de
-**evals** mede a qualidade das extrações para prevenir regressão.
+**evals** mede a qualidade das extrações para prevenir regressão — com **definições de
+eval gerenciáveis pelo painel** (casos + expected, provider/modelo por execução).
 
 ## Stack
 

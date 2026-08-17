@@ -23,7 +23,11 @@ from risklens.application.services.extraction_service import extract_from_text
 from risklens.application.services.indexing_service import index_document
 from risklens.core.config import settings
 from risklens.infrastructure.ai import runtime
-from risklens.infrastructure.ai.llm_provider import build_chat_provider, build_embedding_provider
+from risklens.infrastructure.ai.llm_provider import (
+    build_chat_provider,
+    build_chat_provider_for,
+    build_embedding_provider,
+)
 from risklens.infrastructure.cache.redis import redis_client
 from risklens.infrastructure.db import repository as repo
 from risklens.infrastructure.storage.fs_storage import FsDocumentStorage
@@ -67,6 +71,19 @@ async def _providers_for(ctx: dict, user_id=None) -> tuple[object, object]:
             await credential_service.build_user_embedding_provider(user_id),
         )
     return await _providers(ctx)
+
+
+async def _llm_for_run(ctx: dict, *, provider: str | None, model: str | None, user_id: str | None):
+    """Chat LLM for an eval run: explicit (provider, model) override wins,
+    else the requesting user's effective credentials (BYOK), else the active one."""
+    if provider and model:
+        if user_id is not None:
+            base_url, api_key = await credential_service.get_effective_chat_endpoint(UUID(user_id), provider)
+            return build_chat_provider_for(provider, model, base_url=base_url, api_key=api_key)
+        return build_chat_provider_for(provider, model)
+    if user_id is not None:
+        return await credential_service.build_user_chat_provider(UUID(user_id))
+    return ctx["llm"]
 
 
 async def process_document(ctx: dict, document_id: str) -> dict:
@@ -122,13 +139,32 @@ async def run_agent_job(ctx: dict, run_id: str) -> dict:
         return {"status": "failed", "error": str(exc)[:500]}
 
 
-async def run_eval_job(ctx: dict, run_id: str) -> dict:
-    llm = ctx["llm"]
+async def run_eval_job(
+    ctx: dict,
+    run_id: str,
+    *,
+    definition_id: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    user_id: str | None = None,
+) -> dict:
     run = await repo.get_eval_run(UUID(run_id))
     if run is None:
         return {"status": "not_found"}
     try:
-        metrics = await run_eval(llm, eval_run_id=run.id, name=run.name)
+        if definition_id is None:
+            raise ValueError("run sem definition_id")
+        definition = await repo.get_eval_definition_by_id(UUID(definition_id))
+        if definition is None:
+            raise ValueError(f"definição não encontrada: {definition_id}")
+        llm = await _llm_for_run(ctx, provider=provider, model=model, user_id=user_id)
+        metrics = await run_eval(
+            llm,
+            eval_run_id=run.id,
+            name=run.name,
+            cases=definition.cases,
+            schema_name=definition.schema_name,
+        )
         return {"status": "completed", "metrics": metrics}
     except Exception as exc:  # noqa: BLE001
         logger.exception("eval run %s failed", run_id)
