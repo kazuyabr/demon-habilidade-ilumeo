@@ -37,6 +37,69 @@ class AgentReport(BaseModel):
     citations: list[str] = Field(default_factory=list)
 
 
+_RATING_VALUES = {"A", "B", "C", "D"}
+_DECISION_VALUES = {"approve", "conditional", "decline"}
+_REVISION_FIELDS = {"risk_score", "risk_rating", "decision", "key_findings", "red_flags"}
+
+
+def _safe_int(value) -> int | None:
+    """Coerce a model-provided value to an int (0..100) without raising."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return max(0, min(100, value))
+    if isinstance(value, float) and value.is_integer():
+        return max(0, min(100, int(value)))
+    if isinstance(value, str):
+        try:
+            return max(0, min(100, int(float(value))))
+        except ValueError:
+            return None
+    return None
+
+
+def _merge_revision(analysis: dict, revision: dict) -> tuple[dict, list[str]]:
+    """Apply a reviewer revision field-by-field, keeping the original value
+    when the revision is out of domain. Local 4B models often emit labels
+    instead of numbers (e.g. risk_score as a sentence); a blind merge used to
+    corrupt the analysis and crash the run downstream."""
+    merged = dict(analysis)
+    rejected: list[str] = []
+    for key, value in revision.items():
+        if key not in _REVISION_FIELDS:
+            rejected.append(key)
+            continue
+        if key == "risk_score":
+            valid = _safe_int(value) is not None
+        elif key == "risk_rating":
+            valid = isinstance(value, str) and value in _RATING_VALUES
+        elif key == "decision":
+            valid = isinstance(value, str) and value in _DECISION_VALUES
+        else:  # key_findings / red_flags: list of strings
+            valid = isinstance(value, list) and all(isinstance(v, str) for v in value)
+        if valid:
+            merged[key] = value
+        else:
+            rejected.append(key)
+    return merged, rejected
+
+
+def _build_fallback_report(analysis: dict, citations: list[str]) -> AgentReport:
+    """Safely turn the (possibly dirty) analysis into a valid report — never crash."""
+    score = _safe_int(analysis.get("risk_score"))
+    rating = analysis.get("risk_rating")
+    decision = analysis.get("decision")
+    findings = [f for f in analysis.get("key_findings", []) if isinstance(f, str)][:10]
+    return AgentReport(
+        summary=findings[0] if findings else "Análise concluída.",
+        risk_score=score if score is not None else 0,
+        risk_rating=rating if rating in _RATING_VALUES else "D",
+        decision=decision if decision in _DECISION_VALUES else "conditional",
+        key_findings=findings,
+        citations=citations,
+    )
+
+
 async def _record(run_id: UUID, step: AgentStep) -> None:
     payload = step.to_dict()
     await repo.append_agent_step(run_id, payload)
@@ -44,8 +107,21 @@ async def _record(run_id: UUID, step: AgentStep) -> None:
 
 
 async def _json_call(llm: LLMProvider, *, system: str, user: str) -> dict:
+    """LLM call that must return JSON, with ONE repair retry — the same
+    resilience the extraction pipeline has (local models often wrap/truncate)."""
     raw = await llm.complete(system=system, user=user)
-    return parse_json_output(raw)
+    try:
+        return parse_json_output(raw)
+    except ValueError:
+        repaired = await llm.complete(
+            system=system,
+            user=(
+                f"{user}\n\nATENÇÃO: sua resposta anterior não era JSON válido. "
+                "Responda NOVAMENTE apenas com JSON válido, exatamente no formato pedido acima. "
+                f"Resposta inválida recebida: {raw[:800]}"
+            ),
+        )
+        return parse_json_output(repaired)
 
 
 async def execute_agent(
@@ -58,25 +134,32 @@ async def execute_agent(
 ) -> dict:
     await _record(
         run_id,
-        AgentStep(kind="plan", thought="Entendendo a pergunta e quebrando em sub-queries de busca.",
-                  output=question),
+        AgentStep(kind="plan", thought="Entendendo a pergunta e quebrando em sub-queries de busca.", output=question),
     )
 
     # 1) plan
-    plan = await _json_call(
-        llm,
-        system=(
-            "Você é um planejador de uma análise de risco. Dada a pergunta do gestor, gere "
-            "2 a 4 sub-perguntas de busca que, respondidas, cobrem a pergunta principal. "
-            'Responda APENAS JSON: {"sub_queries": ["...", "..."]}.'
-        ),
-        user=f"Pergunta: {question}",
-    )
-    sub_queries = plan.get("sub_queries", [question])[:4]
+    try:
+        plan = await _json_call(
+            llm,
+            system=(
+                "Você é um planejador de uma análise de risco. Dada a pergunta do gestor, gere "
+                "2 a 4 sub-perguntas de busca que, respondidas, cobrem a pergunta principal. "
+                'Responda APENAS JSON: {"sub_queries": ["...", "..."]}.'
+            ),
+            user=f"Pergunta: {question}",
+        )
+        sub_queries = plan.get("sub_queries", [question])[:4]
+    except Exception:
+        sub_queries = [question]  # keep the run going with the original question
     await _record(
         run_id,
-        AgentStep(kind="plan", action="decompose", action_input=question,
-                  observation=f"Sub-queries: {sub_queries}", output=json.dumps(sub_queries)),
+        AgentStep(
+            kind="plan",
+            action="decompose",
+            action_input=question,
+            observation=f"Sub-queries: {sub_queries}",
+            output=json.dumps(sub_queries),
+        ),
     )
 
     # 2) gather
@@ -117,7 +200,7 @@ async def execute_agent(
         await repo.finish_agent_run(run_id, status="completed", result=report.model_dump())
         return report.model_dump()
 
-    context = "\n\n".join(f"[{i+1}] {e['doc']}:\n{e['content']}" for i, e in enumerate(evidence_list))
+    context = "\n\n".join(f"[{i + 1}] {e['doc']}:\n{e['content']}" for i, e in enumerate(evidence_list))
 
     # 3) analyze
     analysis = await _json_call(
@@ -131,8 +214,12 @@ async def execute_agent(
     )
     await _record(
         run_id,
-        AgentStep(kind="analyze", thought="Consolidando evidências em score e achados.",
-                  action_input=context[:2000], observation=json.dumps(analysis, ensure_ascii=False)),
+        AgentStep(
+            kind="analyze",
+            thought="Consolidando evidências em score e achados.",
+            action_input=context[:2000],
+            observation=json.dumps(analysis, ensure_ascii=False),
+        ),
     )
 
     # 4) review (feature flag)
@@ -147,11 +234,13 @@ async def execute_agent(
             user=f"Análise:\n{json.dumps(analysis, ensure_ascii=False)}\n\nEvidências:\n{context[:4000]}",
         )
         if review.get("verdict") == "revised" and isinstance(review.get("revision"), dict):
-            analysis = {**analysis, **review["revision"]}
+            analysis, rejected = _merge_revision(analysis, review["revision"])
+            review["rejected_fields"] = rejected
         await _record(
             run_id,
-            AgentStep(kind="review", thought="Revisão sênior aplicada.",
-                      observation=json.dumps(review, ensure_ascii=False)),
+            AgentStep(
+                kind="review", thought="Revisão sênior aplicada.", observation=json.dumps(review, ensure_ascii=False)
+            ),
         )
 
     # 5) final report
@@ -167,14 +256,8 @@ async def execute_agent(
         )
         report = AgentReport.model_validate(parse_json_output(final_raw))
     except Exception:
-        report = AgentReport(
-            summary=analysis.get("key_findings", [""])[0] if analysis.get("key_findings") else "Análise concluída.",
-            risk_score=int(analysis.get("risk_score", 0)),
-            risk_rating=analysis.get("risk_rating", "D"),
-            decision=analysis.get("decision", "conditional"),
-            key_findings=analysis.get("key_findings", []),
-            citations=citations,
-        )
+        # Analysis may carry dirty values from a weak model — build a valid report anyway.
+        report = _build_fallback_report(analysis, citations)
 
     report_data = report.model_dump()
     report_data["citations"] = citations or report_data.get("citations", [])
