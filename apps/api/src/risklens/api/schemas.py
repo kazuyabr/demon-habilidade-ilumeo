@@ -146,6 +146,7 @@ class EvalDefinitionCreate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     schema_name: str = "credit_report"
     cases: list[EvalCase] = Field(min_length=1)
+    thresholds: dict[str, float] | None = None  # metric -> min value (overrides global defaults)
 
 
 class EvalDefinitionUpdate(BaseModel):
@@ -153,6 +154,7 @@ class EvalDefinitionUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     schema_name: str | None = None
     cases: list[EvalCase] | None = None
+    thresholds: dict[str, float] | None = None
 
 
 class EvalDefinitionOut(BaseModel):
@@ -162,12 +164,24 @@ class EvalDefinitionOut(BaseModel):
     description: str | None = None
     schema_name: str
     n_cases: int
+    thresholds: dict | None = None
     created_at: datetime
     updated_at: datetime
 
 
 class EvalDefinitionDetail(EvalDefinitionOut):
     cases: list[EvalCase] = Field(default_factory=list)
+
+
+class EvalRunModel(BaseModel):
+    provider: str = Field(min_length=2)
+    model: str = Field(min_length=1)
+
+
+class EvalRunBatchCreate(BaseModel):
+    definition_id: UUID | None = None
+    name: str | None = Field(default=None, min_length=3, max_length=128)
+    models: list[EvalRunModel] = Field(min_length=1)
 
 
 class EvalValidateIn(BaseModel):

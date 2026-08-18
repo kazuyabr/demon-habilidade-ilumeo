@@ -122,6 +122,10 @@ class Settings(BaseSettings):
     agent_max_chars_per_chunk: int = 1200
     agent_max_evidence_chars: int = 8000
 
+    # --- Eval thresholds (defaults; overridable per eval definition) ---
+    # Higher-is-better, except score_mae (lower is better). Evolves over time.
+    eval_default_thresholds: dict = {"decision_accuracy": 0.9, "redflag_recall": 0.4}
+
     # --- Storage ---
     upload_dir: str = "./uploads"
     max_upload_mb: int = 10

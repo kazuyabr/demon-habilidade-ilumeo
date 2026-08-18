@@ -102,6 +102,7 @@ export interface EvalDefinition {
   description: string | null;
   schema_name: string;
   n_cases: number;
+  thresholds: Record<string, number> | null;
   created_at: string;
   updated_at: string;
 }
@@ -260,5 +261,6 @@ export interface EvalItem {
   error?: string;
   metrics?: EvalItemMetrics;
   actual?: Record<string, unknown>;
+  expected?: Record<string, unknown>;
   llm_judge?: number;
 }

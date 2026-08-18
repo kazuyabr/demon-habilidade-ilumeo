@@ -47,6 +47,8 @@ export default async function DashboardPage() {
   const redflagPct = Math.round(((lastEval?.metrics?.redflag_recall as number) ?? 0) * 100);
   const judgeScore = lastEval?.metrics?.llm_judge_score;
   const decisionOk = decisionPct >= 90;
+  const gatePassed = lastEval?.metrics?.passed;
+  const hasGate = typeof gatePassed === "boolean";
 
   return (
     <div className="space-y-6">
@@ -93,6 +95,11 @@ export default async function DashboardPage() {
                 <p className="text-xs text-muted-foreground">
                   recall red flags {redflagPct}% · LLM judge {String(judgeScore ?? "—")}
                 </p>
+                {hasGate && (
+                  <p className={cn("text-xs font-medium", gatePassed ? "text-emerald-600" : "text-destructive")}>
+                    gate: {gatePassed ? "Passou" : "abaixo do limiar"}
+                  </p>
+                )}
                 <p className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
                   <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_COLORS[lastEval.status])} />
                   {lastEval.status} · {fmtDate(lastEval.created_at)} · {evalRuns.length} execuções ·{" "}
