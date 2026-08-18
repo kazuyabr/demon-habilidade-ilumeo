@@ -9,7 +9,7 @@ import { backendFetch } from "@/lib/api";
 import type { DocumentItem } from "@/lib/types";
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
 }
 
 export default async function DocumentsPage() {

@@ -12,6 +12,7 @@ function fmtDate(iso: string) {
     year: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
   });
 }
 
@@ -36,7 +37,9 @@ export default async function DashboardPage() {
   const docList = docs ?? [];
   const completed = docList.filter((d) => d.status === "completed");
   const evalRuns = evals ?? [];
-  const lastEval = evalRuns[0] ?? null;
+  // last run with real metrics — test runs / empty runs must not drive the quality card
+  const lastEval =
+    evalRuns.find((r) => r.status === "completed" && r.metrics?.decision_accuracy != null) ?? null;
   const evalDefinitions = evalDefs ?? [];
 
   // Quality-gate signal (roadmap): decision accuracy must stay >= 90%.
