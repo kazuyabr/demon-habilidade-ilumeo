@@ -33,7 +33,7 @@ function StepCard({ step }: { step: AgentStep }) {
         <Badge className={cn(KIND_COLOR[step.kind] ?? "bg-zinc-100 dark:bg-zinc-800")}>
           {KIND_LABEL[step.kind] ?? step.kind}
         </Badge>
-        <span className="text-[10px] text-muted-foreground">{new Date(step.ts).toLocaleTimeString("pt-BR")}</span>
+        <span className="text-[10px] text-muted-foreground">{new Date(step.ts).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo" })}</span>
       </div>
       {step.thought && <p className="text-xs italic text-muted-foreground">{step.thought}</p>}
       {step.action && (
@@ -179,7 +179,7 @@ export function AgentStudio() {
                       r.status === "completed" ? "bg-emerald-500" : r.status === "failed" ? "bg-red-500" : "bg-blue-500",
                     )}
                   />
-                  {r.status} · {new Date(r.created_at).toLocaleTimeString("pt-BR")}
+                  {r.status} · {new Date(r.created_at).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo" })}
                 </p>
               </button>
             ))}

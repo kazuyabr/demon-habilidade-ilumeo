@@ -729,7 +729,7 @@ export function EvalStudio() {
                                   : "bg-blue-500",
                             )}
                           />
-                          {r.status} · {new Date(r.created_at).toLocaleTimeString("pt-BR")}
+                          {r.status} · {new Date(r.created_at).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo" })}
                         </p>
                         {r.model_used && <p className="mt-0.5 text-xs text-muted-foreground">modelo: {r.model_used}</p>}
                       </button>
