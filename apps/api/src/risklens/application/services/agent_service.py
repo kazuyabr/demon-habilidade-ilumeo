@@ -164,6 +164,8 @@ async def execute_agent(
 
     # 2) gather
     cfg = runtime.get_cached_config()
+    chunk_cap = int(cfg["agent_max_chars_per_chunk"])
+    evidence_cap = int(cfg["agent_max_evidence_chars"])
     evidence: dict[str, dict] = {}
     for sub in sub_queries:
         embedding = (await embedder.embed_texts([sub]))[0]
@@ -175,7 +177,7 @@ async def execute_agent(
         )
         for c in chunks:
             key = f"{c.document_id}:{c.content[:100]}"
-            evidence[key] = {"doc": c.document_title, "content": c.content[:1200], "score": round(c.score, 3)}
+            evidence[key] = {"doc": c.document_title, "content": c.content[:chunk_cap], "score": round(c.score, 3)}
     evidence_list = list(evidence.values())
     n_docs = len({e["doc"] for e in evidence_list})
     await _record(
@@ -201,6 +203,7 @@ async def execute_agent(
         return report.model_dump()
 
     context = "\n\n".join(f"[{i + 1}] {e['doc']}:\n{e['content']}" for i, e in enumerate(evidence_list))
+    context = context[:evidence_cap]
 
     # 3) analyze
     analysis = await _json_call(
@@ -231,7 +234,7 @@ async def execute_agent(
                 "contradições, achados sem evidência e lacunas. Responda JSON: "
                 '{"verdict": "approved"|"revised", "revision": {...}, "notes": [string]}'
             ),
-            user=f"Análise:\n{json.dumps(analysis, ensure_ascii=False)}\n\nEvidências:\n{context[:4000]}",
+            user=f"Análise:\n{json.dumps(analysis, ensure_ascii=False)}\n\nEvidências:\n{context}",
         )
         if review.get("verdict") == "revised" and isinstance(review.get("revision"), dict):
             analysis, rejected = _merge_revision(analysis, review["revision"])

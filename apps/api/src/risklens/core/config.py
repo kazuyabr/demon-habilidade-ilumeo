@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.1
     llm_max_tokens: int = 2048
 
+    # Advanced sampling knobs (per-request, provider-gated by the adapter).
+    # Defaults preserve current behaviour: top_p=1 (no nucleus filtering),
+    # penalties 0, top_k/min_p/seed off (provider picks / random).
+    llm_top_p: float = 1.0
+    llm_sampling_top_k: int | None = None
+    llm_min_p: float | None = None
+    llm_frequency_penalty: float = 0.0
+    llm_presence_penalty: float = 0.0
+    llm_seed: int | None = None
+
     # Per-provider credentials (only the ones in use need to be set)
     openai_api_key: str = Field(default="", repr=False)
     anthropic_api_key: str = Field(default="", repr=False)
@@ -107,6 +117,10 @@ class Settings(BaseSettings):
     # --- RAG tuning (env defaults; overridable at runtime via the settings panel) ---
     rag_chunk_size: int = 1200
     rag_top_k: int = 6
+
+    # --- Agent context caps (no hardcoded literals; runtime-overridable) ---
+    agent_max_chars_per_chunk: int = 1200
+    agent_max_evidence_chars: int = 8000
 
     # --- Storage ---
     upload_dir: str = "./uploads"

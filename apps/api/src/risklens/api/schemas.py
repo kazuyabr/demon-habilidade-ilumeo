@@ -215,8 +215,16 @@ class SettingsUpdate(BaseModel):
     embedding_model: str | None = None
     temperature: float | None = Field(default=None, ge=0, le=2)
     max_tokens: int | None = Field(default=None, ge=64, le=16384)
+    top_p: float | None = Field(default=None, ge=0, le=1)
+    sampling_top_k: int | None = Field(default=None, ge=1, le=1000)
+    min_p: float | None = Field(default=None, ge=0, le=1)
+    frequency_penalty: float | None = Field(default=None, ge=-2, le=2)
+    presence_penalty: float | None = Field(default=None, ge=-2, le=2)
+    seed: int | None = Field(default=None, ge=0)
     chunk_size: int | None = Field(default=None, ge=200, le=4000)
     top_k: int | None = Field(default=None, ge=1, le=20)
+    agent_max_chars_per_chunk: int | None = Field(default=None, ge=200, le=4000)
+    agent_max_evidence_chars: int | None = Field(default=None, ge=1000, le=16000)
     rag_hybrid: bool | None = None
     ff_agent_review_enabled: bool | None = None
     ff_eval_llm_judge: bool | None = None

@@ -133,8 +133,16 @@ export interface SettingsConfig {
   embedding_model: string;
   temperature: number;
   max_tokens: number;
+  top_p: number;
+  sampling_top_k: number | null;
+  min_p: number | null;
+  frequency_penalty: number;
+  presence_penalty: number;
+  seed: number | null;
   chunk_size: number;
   top_k: number;
+  agent_max_chars_per_chunk: number;
+  agent_max_evidence_chars: number;
   rag_hybrid: boolean;
   ff_agent_review_enabled: boolean;
   ff_eval_llm_judge: boolean;
