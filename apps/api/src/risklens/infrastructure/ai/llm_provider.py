@@ -53,11 +53,17 @@ class _BaseProvider:
 
 class OpenAICompatibleProvider(_BaseProvider):
     """OpenAI-compatible chat: OpenCode Zen, OpenAI, Groq, Google Gemini,
-    LM Studio, Ollama, vLLM, custom gateways."""
+    LM Studio, Ollama, vLLM, custom gateways.
 
-    def __init__(self, *, base_url: str, api_key: str, model: str):
+    ``strict_openai``: providers that reject unknown params (OpenAI, Groq,
+    OpenCode, Gemini gateway) — top_k/min_p are NOT sent to them.
+    ``permissive`` local servers (LM Studio/Ollama) accept top_k/min_p.
+    """
+
+    def __init__(self, *, base_url: str, api_key: str, model: str, strict_openai: bool = False):
         self.base_url = base_url
         self.model = model
+        self._strict_openai = strict_openai
         # Retry 429/5xx with exponential backoff — free tiers (OpenCode Zen) rate-limit bursts
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, max_retries=6, timeout=60.0)
 
@@ -72,15 +78,25 @@ class OpenAICompatibleProvider(_BaseProvider):
         span = await self._span("llm.complete", system=system, user=user)
         try:
             cfg = runtime.get_cached_config()
-            resp = await self._client.chat.completions.create(
-                model=self.model,
-                messages=[
+            kwargs: dict = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                max_tokens=max_tokens or cfg["max_tokens"],
-                temperature=temperature if temperature is not None else cfg["temperature"],
+                "max_tokens": max_tokens or cfg["max_tokens"],
+                "temperature": temperature if temperature is not None else cfg["temperature"],
+            }
+            kwargs.update(
+                _sampling_kwargs(
+                    cfg,
+                    top_k=not self._strict_openai,
+                    min_p=not self._strict_openai,
+                    penalties=True,
+                    seed=True,
+                )
             )
+            resp = await self._client.chat.completions.create(**kwargs)
             content = resp.choices[0].message.content or ""
             if resp.usage:
                 span.set_attribute("gen_ai.usage.completion_tokens", resp.usage.completion_tokens)
@@ -114,13 +130,15 @@ class AnthropicProvider(_BaseProvider):
         span = await self._span("llm.complete", system=system, user=user)
         try:
             cfg = runtime.get_cached_config()
-            resp = await self._client.messages.create(
-                model=self.model,
-                system=system,
-                messages=[{"role": "user", "content": user}],
-                max_tokens=max_tokens or cfg["max_tokens"],
-                temperature=temperature if temperature is not None else cfg["temperature"],
-            )
+            kwargs: dict = {
+                "model": self.model,
+                "system": system,
+                "messages": [{"role": "user", "content": user}],
+                "max_tokens": max_tokens or cfg["max_tokens"],
+                "temperature": temperature if temperature is not None else cfg["temperature"],
+            }
+            kwargs.update(_sampling_kwargs(cfg, top_k=True))
+            resp = await self._client.messages.create(**kwargs)
             return "".join(block.text for block in resp.content if block.type == "text")
         finally:
             span.end()
@@ -175,14 +193,16 @@ class VertexProvider(_BaseProvider):
         span = await self._span("llm.complete", system=system, user=user)
         try:
             cfg = runtime.get_cached_config()
+            config_kwargs: dict = {
+                "system_instruction": system,
+                "max_output_tokens": max_tokens or cfg["max_tokens"],
+                "temperature": temperature if temperature is not None else cfg["temperature"],
+            }
+            config_kwargs.update(_sampling_kwargs(cfg, top_k=True, penalties=True))
             resp = await client.aio.models.generate_content(
                 model=self.model,
                 contents=user,
-                config=types.GenerateContentConfig(
-                    system_instruction=system,
-                    max_output_tokens=max_tokens or cfg["max_tokens"],
-                    temperature=temperature if temperature is not None else cfg["temperature"],
-                ),
+                config=types.GenerateContentConfig(**config_kwargs),
             )
             return resp.text or ""
         finally:
@@ -224,15 +244,17 @@ class OpenAIResponsesProvider(_BaseProvider):
         span = await self._span("llm.complete", system=system, user=user)
         try:
             cfg = runtime.get_cached_config()
-            resp = await self._client.responses.create(
-                model=self.model,
-                input=[
+            kwargs: dict = {
+                "model": self.model,
+                "input": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                max_output_tokens=max_tokens or cfg["max_tokens"],
-                temperature=temperature if temperature is not None else cfg["temperature"],
-            )
+                "max_output_tokens": max_tokens or cfg["max_tokens"],
+                "temperature": temperature if temperature is not None else cfg["temperature"],
+            }
+            kwargs.update(_sampling_kwargs(cfg, penalties=True))
+            resp = await self._client.responses.create(**kwargs)
             if hasattr(resp, "output_text"):
                 return resp.output_text or ""
             text = ""
@@ -280,14 +302,16 @@ class GoogleGeminiProvider(_BaseProvider):
         span = await self._span("llm.complete", system=system, user=user)
         try:
             cfg = runtime.get_cached_config()
+            config_kwargs: dict = {
+                "system_instruction": system,
+                "max_output_tokens": max_tokens or cfg["max_tokens"],
+                "temperature": temperature if temperature is not None else cfg["temperature"],
+            }
+            config_kwargs.update(_sampling_kwargs(cfg, top_k=True, penalties=True))
             resp = await client.aio.models.generate_content(
                 model=self.model,
                 contents=user,
-                config=types.GenerateContentConfig(
-                    system_instruction=system,
-                    max_output_tokens=max_tokens or cfg["max_tokens"],
-                    temperature=temperature if temperature is not None else cfg["temperature"],
-                ),
+                config=types.GenerateContentConfig(**config_kwargs),
             )
             return resp.text or ""
         finally:
@@ -403,6 +427,37 @@ def _strip_v1(url: str) -> str:
     return stripped or url
 
 
+def _sampling_kwargs(
+    cfg: dict,
+    *,
+    top_k: bool = False,
+    min_p: bool = False,
+    penalties: bool = False,
+    seed: bool = False,
+) -> dict:
+    """Build the sampling kwargs a provider supports from the runtime config.
+
+    Provider gating is explicit per adapter: e.g. real OpenAI rejects top_k/min_p,
+    Anthropic has no frequency/presence penalties, seed is skipped where it would
+    need a beta header or is unsupported. Only non-default values are emitted.
+    """
+    kwargs: dict = {}
+    if cfg.get("top_p") is not None:
+        kwargs["top_p"] = float(cfg["top_p"])
+    if top_k and cfg.get("sampling_top_k") is not None:
+        kwargs["top_k"] = int(cfg["sampling_top_k"])
+    if min_p and cfg.get("min_p") is not None:
+        kwargs["min_p"] = float(cfg["min_p"])
+    if penalties:
+        if cfg.get("frequency_penalty"):
+            kwargs["frequency_penalty"] = float(cfg["frequency_penalty"])
+        if cfg.get("presence_penalty"):
+            kwargs["presence_penalty"] = float(cfg["presence_penalty"])
+    if seed and cfg.get("seed") is not None:
+        kwargs["seed"] = int(cfg["seed"])
+    return kwargs
+
+
 def _build_chat(
     provider: str,
     model: str,
@@ -434,7 +489,9 @@ def _build_chat(
         return AnthropicProvider(api_key=api_key, model=model, base_url=_strip_v1(base_url))
     if protocol == "google":
         return GoogleGeminiProvider(base_url=base_url, api_key=api_key, model=model)
-    return OpenAICompatibleProvider(base_url=base_url, api_key=api_key, model=model)
+    # Providers that reject unknown sampling params (no top_k/min_p).
+    strict_openai = provider in {"openai", "groq", "opencode", "opencode-go", "google"}
+    return OpenAICompatibleProvider(base_url=base_url, api_key=api_key, model=model, strict_openai=strict_openai)
 
 
 def build_chat_provider() -> LLMProvider:
@@ -507,6 +564,4 @@ def build_embedding_provider() -> EmbeddingProvider:
             dims=settings.embedding_dims,
         )
     base_url, api_key, dims = resolve_embed_endpoint(provider)
-    return OpenAICompatibleEmbeddings(
-        base_url=base_url, api_key=api_key, model=model, dims=dims
-    )
+    return OpenAICompatibleEmbeddings(base_url=base_url, api_key=api_key, model=model, dims=dims)

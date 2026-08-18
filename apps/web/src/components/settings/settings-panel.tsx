@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { KeyRound, Loader2, Save, Trash2, Zap } from "lucide-react";
+import { ChevronDown, ChevronRight, Dices, KeyRound, Loader2, Save, Trash2, Zap } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,12 +32,24 @@ const EMPTY: SettingsConfig = {
   embedding_model: "",
   temperature: 0.1,
   max_tokens: 2048,
+  top_p: 1,
+  sampling_top_k: null,
+  min_p: null,
+  frequency_penalty: 0,
+  presence_penalty: 0,
+  seed: null,
   chunk_size: 1200,
   top_k: 6,
+  agent_max_chars_per_chunk: 1200,
+  agent_max_evidence_chars: 8000,
   rag_hybrid: true,
   ff_agent_review_enabled: true,
   ff_eval_llm_judge: true,
 };
+
+// Optional numeric knobs: empty input = null (provider default / random).
+const numOrNull = (v: string): number | null => (v.trim() === "" ? null : parseInt(v, 10) || null);
+const floatOrNull = (v: string): number | null => (v.trim() === "" ? null : parseFloat(v) || 0);
 
 function FieldRow({
   label,
@@ -117,6 +129,7 @@ export function SettingsPanel() {
   const [savingCred, setSavingCred] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [showSampling, setShowSampling] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
@@ -456,6 +469,99 @@ export function SettingsPanel() {
               />
             </FieldRow>
           </div>
+
+          <div className="border-t pt-3">
+            <button
+              type="button"
+              onClick={() => setShowSampling((s) => !s)}
+              className="flex w-full items-center justify-between text-sm font-medium"
+            >
+              <span>Amostragem (avançado)</span>
+              {showSampling ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+            {showSampling && (
+              <div className="mt-3 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Peso de amostragem por request. Alguns só se aplicam a certos providers: Top-K e
+                  Min-P são para modelos locais/Anthropic/Vertex; penalidades não se aplicam ao
+                  Anthropic; Seed fixo dá resultados determinísticos (útil para evals).
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <FieldRow label="Top-P" custom={overridden.includes("top_p")}>
+                    <Input
+                      type="number"
+                      step={0.05}
+                      min={0}
+                      max={1}
+                      value={draft.top_p}
+                      onChange={(e) => set("top_p", parseFloat(e.target.value) || 0)}
+                    />
+                  </FieldRow>
+                  <FieldRow label="Top-K (amostragem)" custom={overridden.includes("sampling_top_k")}>
+                    <Input
+                      type="number"
+                      step={1}
+                      min={1}
+                      placeholder="vazio = padrão"
+                      value={draft.sampling_top_k ?? ""}
+                      onChange={(e) => set("sampling_top_k", numOrNull(e.target.value))}
+                    />
+                  </FieldRow>
+                  <FieldRow label="Min-P" custom={overridden.includes("min_p")}>
+                    <Input
+                      type="number"
+                      step={0.05}
+                      min={0}
+                      max={1}
+                      placeholder="vazio = padrão"
+                      value={draft.min_p ?? ""}
+                      onChange={(e) => set("min_p", floatOrNull(e.target.value))}
+                    />
+                  </FieldRow>
+                  <FieldRow label="Penalidade de frequência" custom={overridden.includes("frequency_penalty")}>
+                    <Input
+                      type="number"
+                      step={0.1}
+                      min={-2}
+                      max={2}
+                      value={draft.frequency_penalty}
+                      onChange={(e) => set("frequency_penalty", parseFloat(e.target.value) || 0)}
+                    />
+                  </FieldRow>
+                  <FieldRow label="Penalidade de presença" custom={overridden.includes("presence_penalty")}>
+                    <Input
+                      type="number"
+                      step={0.1}
+                      min={-2}
+                      max={2}
+                      value={draft.presence_penalty}
+                      onChange={(e) => set("presence_penalty", parseFloat(e.target.value) || 0)}
+                    />
+                  </FieldRow>
+                  <FieldRow label="Seed" custom={overridden.includes("seed")}>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        step={1}
+                        min={0}
+                        placeholder="vazio = aleatório"
+                        value={draft.seed ?? ""}
+                        onChange={(e) => set("seed", numOrNull(e.target.value))}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title="Gerar um seed aleatório e fixar"
+                        onClick={() => set("seed", Math.floor(Math.random() * 1_000_000_000))}
+                      >
+                        <Dices className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </FieldRow>
+                </div>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -504,6 +610,35 @@ export function SettingsPanel() {
                 onChange={(v) => set("ff_eval_llm_judge", v)}
               />
             </FieldRow>
+            <div className="border-t pt-3">
+              <p className="mb-2 text-sm font-medium">Agente — contexto</p>
+              <div className="grid grid-cols-2 gap-4">
+                <FieldRow
+                  label="Máx. caracteres por trecho"
+                  custom={overridden.includes("agent_max_chars_per_chunk")}
+                >
+                  <Input
+                    type="number"
+                    step={100}
+                    min={200}
+                    value={draft.agent_max_chars_per_chunk}
+                    onChange={(e) => set("agent_max_chars_per_chunk", parseInt(e.target.value, 10) || 0)}
+                  />
+                </FieldRow>
+                <FieldRow
+                  label="Máx. evidência por passo"
+                  custom={overridden.includes("agent_max_evidence_chars")}
+                >
+                  <Input
+                    type="number"
+                    step={500}
+                    min={1000}
+                    value={draft.agent_max_evidence_chars}
+                    onChange={(e) => set("agent_max_evidence_chars", parseInt(e.target.value, 10) || 0)}
+                  />
+                </FieldRow>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
