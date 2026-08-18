@@ -162,3 +162,109 @@ async def test_delete_guard_with_running_run(client, admin_user) -> None:
 
     allowed = await client.delete(f"/api/v1/evals/definitions/{definition_id}", headers=headers)
     assert allowed.status_code == 204
+
+
+class _FakeEvalLLM:
+    """Returns a valid CreditRiskReport for any prompt — enough to drive run_eval."""
+
+    model = "fake/model"
+
+    async def complete(self, *, system: str, user: str, max_tokens=None, temperature=None) -> str:
+        import json
+
+        return json.dumps(
+            {
+                "company_name": "Empresa Alfa",
+                "sector": "serviços",
+                "analysis_date": "10/08/2026",
+                "overall_risk_score": 60,
+                "risk_rating": "B",
+                "decision": "approve",
+                "decision_justification": "Risco baixo.",
+                "confidence": 0.85,
+                "key_metrics": [],
+                "financial_health": {},
+                "credit_factors": [],
+                "red_flags": [],
+                "recommended_limit": "R$ 1 milhão",
+            },
+            ensure_ascii=False,
+        )
+
+
+async def test_run_eval_snapshots_expected_and_gate(admin_user) -> None:
+    from sqlalchemy import text
+
+    from risklens.application.services.eval_service import run_eval
+    from risklens.infrastructure.db.session import SessionFactory
+
+    definition = await repo.create_eval_definition(
+        slug=f"gate-{uuid4().hex[:8]}",
+        title="Gate",
+        schema_name="credit_report",
+        cases=[_case()],
+        thresholds={"decision_accuracy": 0.9, "redflag_recall": 0.3},
+        created_by=admin_user["id"],
+    )
+    run = await repo.create_eval_run(definition.slug, model_used="fake/model", definition_id=definition.id)
+    try:
+        await run_eval(
+            _FakeEvalLLM(),
+            eval_run_id=run.id,
+            name=run.name,
+            cases=definition.cases,
+            schema_name=definition.schema_name,
+            thresholds=definition.thresholds,
+        )
+        loaded = await repo.get_eval_run(run.id)
+        assert loaded.status == "completed"
+        item = loaded.items[0]
+        # snapshot stores the case's expected (not the model output) — immutable diff
+        assert item["expected"]["company_name"] == "Empresa ABC"
+        assert loaded.metrics["passed"] is True
+        assert loaded.metrics["threshold_results"]["decision_accuracy"]["pass"] is True
+        assert loaded.metrics["thresholds"]["decision_accuracy"] == 0.9
+    finally:
+        async with SessionFactory() as session:
+            await session.execute(text("DELETE FROM eval_runs WHERE id = :rid"), {"rid": run.id})
+            await session.execute(text("DELETE FROM eval_definitions WHERE id = :did"), {"did": definition.id})
+            await session.commit()
+
+
+async def test_batch_run_creates_n_runs(client, admin_user) -> None:
+    token = await _login(client, admin_user["email"], admin_user["password"])
+    headers = {"Authorization": f"Bearer {token}"}
+    slug = f"ab-{uuid4().hex[:8]}"
+    created = await client.post(
+        "/api/v1/evals/definitions",
+        headers=headers,
+        json={"slug": slug, "title": "Teste AB", "cases": [_case()]},
+    )
+    definition_id = created.json()["id"]
+
+    batch = await client.post(
+        "/api/v1/evals/runs/batch",
+        headers=headers,
+        json={
+            "definition_id": definition_id,
+            "models": [
+                {"provider": "lmstudio", "model": "google/gemma-3-4b"},
+                {"provider": "lmstudio", "model": "google/gemma-3-4b"},
+            ],
+        },
+    )
+    assert batch.status_code == 200, batch.text
+    runs = batch.json()
+    assert len(runs) == 2
+    assert all(r["definition_id"] == definition_id for r in runs)
+    assert all(r["model_used"] == "lmstudio/google/gemma-3-4b" for r in runs)
+
+    from sqlalchemy import text
+
+    from risklens.infrastructure.db.session import SessionFactory
+
+    async with SessionFactory() as session:
+        for r in runs:
+            await session.execute(text("DELETE FROM eval_runs WHERE id = :rid"), {"rid": r["id"]})
+        await session.execute(text("DELETE FROM eval_definitions WHERE id = :did"), {"did": definition_id})
+        await session.commit()

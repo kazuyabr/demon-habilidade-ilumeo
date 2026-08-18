@@ -12,6 +12,7 @@ from risklens.api.schemas import (
     EvalDefinitionDetail,
     EvalDefinitionOut,
     EvalDefinitionUpdate,
+    EvalRunBatchCreate,
     EvalRunCreate,
     EvalRunOut,
     EvalValidateIn,
@@ -24,6 +25,15 @@ from risklens.infrastructure.db.models import User
 
 router = APIRouter(prefix="/evals", tags=["evals"])
 
+_KNOWN_METRICS = {
+    "field_exact_accuracy",
+    "field_fuzzy_similarity",
+    "decision_accuracy",
+    "redflag_recall",
+    "score_mae",
+    "llm_judge_score",
+}
+
 
 def _definition_out(definition) -> EvalDefinitionOut:
     return EvalDefinitionOut(
@@ -33,6 +43,7 @@ def _definition_out(definition) -> EvalDefinitionOut:
         description=definition.description,
         schema_name=definition.schema_name,
         n_cases=len(definition.cases),
+        thresholds=definition.thresholds,
         created_at=definition.created_at,
         updated_at=definition.updated_at,
     )
@@ -43,6 +54,17 @@ def _detail_out(definition) -> EvalDefinitionDetail:
         **_definition_out(definition).model_dump(),
         cases=definition.cases,
     )
+
+
+def _validate_thresholds(thresholds: dict | None) -> None:
+    if not thresholds:
+        return
+    unknown = set(thresholds) - _KNOWN_METRICS
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"métricas desconhecidas no limiar: {', '.join(sorted(unknown))}",
+        )
 
 
 def _validate_schema(schema_name: str) -> None:
@@ -93,6 +115,7 @@ async def create_definition(
 ) -> EvalDefinitionDetail:
     _validate_schema(body.schema_name)
     _validate_cases(body.schema_name, body.cases)
+    _validate_thresholds(body.thresholds)
     existing = await repo.get_eval_definition_by_slug(body.slug)
     if existing is not None:
         raise HTTPException(status_code=409, detail=f"Slug já existe: {body.slug}")
@@ -102,6 +125,7 @@ async def create_definition(
         description=body.description,
         schema_name=body.schema_name,
         cases=[c.model_dump() for c in body.cases],
+        thresholds=body.thresholds,
         created_by=user.id,
     )
     return _detail_out(definition)
@@ -123,6 +147,7 @@ async def update_definition(
     if cases is not None:
         _validate_cases(schema_name, cases)
         updates["cases"] = [c.model_dump() for c in cases]
+    _validate_thresholds(updates.get("thresholds"))
     updated = await repo.update_eval_definition(definition_id, **updates)
     return _detail_out(updated)
 
@@ -195,6 +220,58 @@ async def create_eval(
         user_id=str(user.id),
     )
     return EvalRunOut.model_validate(run)
+
+
+async def _resolve_definition(definition_id: UUID | None, name: str | None):
+    if definition_id is not None:
+        definition = await repo.get_eval_definition_by_id(definition_id)
+        if definition is None:
+            raise HTTPException(status_code=404, detail="Definição de eval não encontrada")
+    elif name is not None:
+        definition = await repo.get_eval_definition_by_slug(name)
+        if definition is None:
+            raise HTTPException(status_code=404, detail=f"Definição de eval não encontrada: {name}")
+    else:
+        raise HTTPException(status_code=422, detail="Informe definition_id ou name")
+    return definition
+
+
+def _validate_model_combo(provider: str, model: str) -> tuple[str, str]:
+    provider = provider.lower()
+    try:
+        registry.require_chat_model(provider, model)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return provider, model
+
+
+@router.post("/runs/batch", response_model=list[EvalRunOut])
+async def create_eval_batch(
+    body: EvalRunBatchCreate,
+    user: User = Depends(require_roles("admin", "analyst")),
+    queue=Depends(get_job_queue),
+) -> list[EvalRunOut]:
+    """A/B: run the same definition against several models at once."""
+    definition = await _resolve_definition(body.definition_id, body.name)
+    runs = []
+    for choice in body.models:
+        provider, model = _validate_model_combo(choice.provider, choice.model)
+        run = await repo.create_eval_run(
+            definition.slug,
+            model_used=f"{provider}/{model}",
+            definition_id=definition.id,
+        )
+        await queue.enqueue(
+            "run_eval_job",
+            _job_id=str(run.id),
+            run_id=str(run.id),
+            definition_id=str(definition.id),
+            provider=provider,
+            model=model,
+            user_id=str(user.id),
+        )
+        runs.append(run)
+    return [EvalRunOut.model_validate(r) for r in runs]
 
 
 @router.get("/runs", response_model=list[EvalRunOut])

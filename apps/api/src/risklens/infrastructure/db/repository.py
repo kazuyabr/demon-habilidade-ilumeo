@@ -294,6 +294,7 @@ async def create_eval_definition(
     schema_name: str,
     cases: list,
     description: str | None = None,
+    thresholds: dict | None = None,
     created_by: UUID | None = None,
 ) -> m.EvalDefinition:
     async with SessionFactory() as session:
@@ -303,6 +304,7 @@ async def create_eval_definition(
             description=description,
             schema_name=schema_name,
             cases=cases,
+            thresholds=thresholds,
             created_by=created_by,
         )
         session.add(definition)

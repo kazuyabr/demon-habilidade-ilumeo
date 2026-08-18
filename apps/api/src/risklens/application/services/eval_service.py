@@ -24,12 +24,31 @@ from uuid import UUID
 
 from risklens.application.ports import LLMProvider
 from risklens.application.services.extraction_service import extract_from_text
+from risklens.core.config import settings
 from risklens.domain.schemas import SCHEMA_REGISTRY
 from risklens.infrastructure.ai import runtime
 from risklens.infrastructure.db import repository as repo
 
 _SCALAR_TYPES = {str, int, float, bool}
 _LIST_KEY_PREFERENCES = ("flag", "name", "factor", "key", "label", "title")
+_LOWER_IS_BETTER = {"score_mae"}
+
+
+def _evaluate_thresholds(metrics: dict, thresholds: dict | None) -> tuple[dict, bool, dict]:
+    """Evaluate per-metric pass/fail. Definition thresholds override global
+    defaults; metrics not measured are skipped (do not fail the gate)."""
+    defaults = settings.eval_default_thresholds or {}
+    effective = {**defaults, **(thresholds or {})}
+    results: dict[str, dict] = {}
+    for metric, threshold in effective.items():
+        value = metrics.get(metric)
+        if value is None:
+            results[metric] = {"threshold": threshold, "value": None, "pass": None}
+            continue
+        ok = float(value) <= float(threshold) if metric in _LOWER_IS_BETTER else float(value) >= float(threshold)
+        results[metric] = {"threshold": threshold, "value": value, "pass": ok}
+    passed = all(r["pass"] is not False for r in results.values())
+    return results, passed, effective
 
 
 def _jaccard(a: str, b: str) -> float:
@@ -171,12 +190,15 @@ async def run_eval(
     name: str,
     cases: list[dict],
     schema_name: str = "credit_report",
+    thresholds: dict | None = None,
 ) -> dict:
     """Run the extraction pipeline over a definition's cases and persist metrics.
 
     ``cases`` come from an ``EvalDefinition`` row: each has ``document_text``
-    (snapshot) and ``expected``. No filesystem dependency — definitions are
-    managed by the client via the panel.
+    (snapshot) and ``expected``. The validated ``expected`` is snapshotted into
+    each run item so historical diffs never change if the definition is edited.
+    ``thresholds`` are per-definition overrides of the global defaults; the run
+    persists ``passed`` + ``threshold_results`` for the quality gate.
     """
     schema_cls = SCHEMA_REGISTRY.get(schema_name)
     if schema_cls is None:
@@ -216,6 +238,7 @@ async def run_eval(
         result: dict = {"case": src_name, "index": index, "status": "completed"}
         try:
             expected = schema_cls.model_validate(case["expected"]).model_dump()
+            result["expected"] = expected  # immutable snapshot for historical diffs
             actual, _, _ = await extract_from_text(llm, text=text, schema_name=schema_name)
             cmp = _compare(expected, actual, schema_cls)
             result["metrics"] = cmp
@@ -254,5 +277,11 @@ async def run_eval(
 
     failed = sum(1 for i in items if i["status"] == "failed")
     final_status = "completed" if failed == 0 else "completed_with_failures"
+
+    threshold_results, passed, effective = _evaluate_thresholds(agg, thresholds)
+    agg["thresholds"] = effective
+    agg["threshold_results"] = threshold_results
+    agg["passed"] = passed
+
     await repo.finish_eval_run(eval_run_id, status=final_status, metrics=agg, items=items)
     return agg

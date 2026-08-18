@@ -128,6 +128,7 @@ class EvalDefinition(Base):
     cases: Mapped[list] = mapped_column(
         JSONB, default=list, nullable=False
     )  # [{document_file?, document_text, expected}]
+    thresholds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # {metric: min value}
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)

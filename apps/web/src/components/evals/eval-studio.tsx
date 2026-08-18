@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   FlaskConical,
   Loader2,
@@ -43,6 +43,10 @@ const METRIC_LABELS: Record<string, string> = {
   llm_judge_score: "Nota LLM judge (0–5)",
   n_cases: "Casos",
 };
+
+function pct(value: unknown): string {
+  return typeof value === "number" ? `${(value * 100).toFixed(0)}%` : "—";
+}
 
 function Metric({ label, value }: { label: string; value: unknown }) {
   let display = String(value ?? "—");
@@ -123,22 +127,29 @@ function RunDialog({
 }: {
   definition: EvalDefinition;
   onClose: () => void;
-  onRun: (provider: string | null, model: string | null) => Promise<void>;
+  onRun: (models: Array<{ provider: string; model: string }>) => Promise<void>;
 }) {
   const { options, defaultValue } = useModelOptions();
-  const [value, setValue] = useState<string>(defaultValue);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(defaultValue ? [defaultValue] : []));
   const [busy, setBusy] = useState(false);
 
-  const activeValue = useMemo(
-    () => value || defaultValue,
-    [value, defaultValue],
-  );
+  function toggle(value: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
 
   async function submit() {
     setBusy(true);
-    const [provider, model] = activeValue ? activeValue.split("::") : [null, null];
+    const models = [...selected].map((v) => {
+      const [provider, model] = v.split("::");
+      return { provider, model };
+    });
     try {
-      await onRun(provider, model);
+      await onRun(models);
       onClose();
     } catch {
       /* toast handled by caller */
@@ -153,35 +164,38 @@ function RunDialog({
         <DialogHeader>
           <DialogTitle>Rodar {definition.title}</DialogTitle>
           <DialogDescription>
-            {definition.n_cases} casos · schema {definition.schema_name}. Escolha o modelo (default = ativo).
+            {definition.n_cases} casos · schema {definition.schema_name}. Escolha 1 ou mais modelos —
+            vários = comparação A/B na aba Execuções.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="run-model">Provider / modelo</Label>
+          <Label>Provider / modelo (marque os desejados)</Label>
           {options.length === 0 ? (
             <p className="text-xs text-muted-foreground">Usando o modelo ativo (sem seletor disponível)…</p>
           ) : (
-            <Select value={activeValue} onValueChange={setValue}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Selecione o modelo" />
-              </SelectTrigger>
-              <SelectContent>
-                {options.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-1.5">
+              {options.map((o) => {
+                const checked = selected.has(o.value);
+                return (
+                  <label
+                    key={o.value}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
+                  >
+                    <input type="checkbox" checked={checked} onChange={() => toggle(o.value)} className="h-4 w-4" />
+                    <span className="truncate">{o.label}</span>
+                  </label>
+                );
+              })}
+            </div>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={submit} disabled={busy}>
+          <Button onClick={submit} disabled={busy || selected.size === 0}>
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-            Executar
+            Executar{selected.size > 1 ? ` (${selected.size} modelos)` : ""}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -196,6 +210,7 @@ function RunDialog({
 type CaseDraft = {
   source: "paste" | "document";
   document_file: string;
+  docId: string;
   document_text: string;
   expectedJson: string;
   valid?: boolean | null;
@@ -204,6 +219,7 @@ type CaseDraft = {
 const EMPTY_CASE: CaseDraft = {
   source: "paste",
   document_file: "",
+  docId: "",
   document_text: "",
   expectedJson: "{}",
   valid: null,
@@ -224,17 +240,26 @@ function DefinitionFormDialog({
     description: string | null;
     schema_name: string;
     cases: EvalCase[];
+    thresholds: Record<string, number> | null;
   }) => Promise<void>;
 }) {
   const [slug, setSlug] = useState(definition?.slug ?? "");
   const [title, setTitle] = useState(definition?.title ?? "");
   const [description, setDescription] = useState(definition?.description ?? "");
   const [schemaName, setSchemaName] = useState(definition?.schema_name ?? "credit_report");
+  const [thresholds, setThresholds] = useState<Record<string, string>>(() => {
+    const t = definition?.thresholds ?? {};
+    return {
+      decision_accuracy: t.decision_accuracy != null ? String(Math.round(t.decision_accuracy * 100)) : "",
+      redflag_recall: t.redflag_recall != null ? String(Math.round(t.redflag_recall * 100)) : "",
+    };
+  });
   const [cases, setCases] = useState<CaseDraft[]>(
     definition
       ? definition.cases.map((c) => ({
           source: "paste" as const,
           document_file: c.document_file ?? "",
+          docId: "",
           document_text: c.document_text,
           expectedJson: JSON.stringify(c.expected, null, 2),
           valid: null,
@@ -257,10 +282,35 @@ function DefinitionFormDialog({
       updateCase(i, {
         source: "document",
         document_file: body.filename,
+        docId,
         document_text: body.text,
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao carregar documento");
+    } finally {
+      setLoadingDoc(null);
+    }
+  }
+
+  async function fillFromExtraction(i: number) {
+    const docId = cases[i].docId;
+    if (!docId) {
+      toast.error("Selecione um documento primeiro");
+      return;
+    }
+    setLoadingDoc(i);
+    try {
+      const res = await fetch(`/api/extractions/document/${docId}`);
+      if (!res.ok) throw new Error("Documento sem extração concluída");
+      const body = (await res.json()) as { data?: Record<string, unknown> | null };
+      if (!body.data) {
+        toast.error("Documento sem extração concluída");
+        return;
+      }
+      updateCase(i, { expectedJson: JSON.stringify(body.data, null, 2) });
+      toast.success("Expected preenchido a partir da extração");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao carregar extração");
     } finally {
       setLoadingDoc(null);
     }
@@ -310,12 +360,18 @@ function DefinitionFormDialog({
           expected,
         });
       }
+      const thr: Record<string, number> = {};
+      const dAcc = parseFloat(thresholds.decision_accuracy);
+      const rRec = parseFloat(thresholds.redflag_recall);
+      if (!Number.isNaN(dAcc)) thr.decision_accuracy = Math.min(100, Math.max(0, dAcc)) / 100;
+      if (!Number.isNaN(rRec)) thr.redflag_recall = Math.min(100, Math.max(0, rRec)) / 100;
       const payload = {
         ...(definition ? {} : { slug }),
         title: title.trim() || slug || title,
         description: description.trim() || null,
         schema_name: schemaName,
         cases: payloadCases,
+        thresholds: Object.keys(thr).length ? thr : null,
       };
       await onSave(payload);
       onClose();
@@ -362,6 +418,39 @@ function DefinitionFormDialog({
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Limiares do gate (vazio = padrão global)</Label>
+            <p className="text-xs text-muted-foreground">
+              Padrão: acerto de decisão ≥ 90% · recall de red flags ≥ 40%. Cada execução marca
+              &quot;Passou/Falhou&quot; no painel e no dashboard.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs">Acerto de decisão (%)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  placeholder="90"
+                  value={thresholds.decision_accuracy}
+                  onChange={(e) => setThresholds((p) => ({ ...p, decision_accuracy: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Recall de red flags (%)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  placeholder="40"
+                  value={thresholds.redflag_recall}
+                  onChange={(e) => setThresholds((p) => ({ ...p, redflag_recall: e.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -398,7 +487,7 @@ function DefinitionFormDialog({
                   </SelectContent>
                 </Select>
                 {c.source === "document" && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Select value="" onValueChange={(v) => v && loadDocumentText(i, v)}>
                       <SelectTrigger className="w-64">
                         <SelectValue placeholder="Escolher documento…" />
@@ -412,6 +501,11 @@ function DefinitionFormDialog({
                       </SelectContent>
                     </Select>
                     {loadingDoc === i && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {c.docId && (
+                      <Button variant="outline" size="sm" onClick={() => fillFromExtraction(i)} disabled={loadingDoc === i}>
+                        Usar extração atual como esperado
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
@@ -466,6 +560,8 @@ function DefinitionFormDialog({
 function CaseRow({ item, expected }: { item: EvalItem; expected?: EvalCase }) {
   const [open, setOpen] = useState(false);
   const m = item.metrics;
+  // snapshot stored at run time wins; otherwise fall back to the current definition
+  const expectedObj = item.expected ?? expected?.expected ?? {};
   return (
     <div className="rounded-md border px-3 py-2">
       <button type="button" className="flex w-full items-center justify-between text-left" onClick={() => setOpen((o) => !o)}>
@@ -494,7 +590,7 @@ function CaseRow({ item, expected }: { item: EvalItem; expected?: EvalCase }) {
           <div>
             <p className="mb-1 text-xs font-medium text-muted-foreground">Esperado</p>
             <pre className="max-h-64 overflow-auto rounded-md bg-muted/60 p-2 text-xs">
-              {JSON.stringify(expected?.expected ?? {}, null, 2)}
+              {JSON.stringify(expectedObj, null, 2)}
             </pre>
           </div>
           <div>
@@ -569,20 +665,38 @@ export function EvalStudio() {
     };
   }, [selectedRun?.definition_id, selectedRun?.id]);
 
-  async function startRun(def: EvalDefinition, provider: string | null, model: string | null) {
-    const res = await fetch("/api/evals/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ definition_id: def.id, provider, model }),
-    });
-    const body = await res.json();
-    if (!res.ok) {
-      toast.error(body.detail ?? "Falha ao iniciar o eval");
-      throw new Error("run_failed");
+  async function startRun(def: EvalDefinition, models: Array<{ provider: string; model: string }>) {
+    if (models.length === 0) return;
+    if (models.length === 1) {
+      const { provider, model } = models[0];
+      const res = await fetch("/api/evals/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ definition_id: def.id, provider, model }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        toast.error(body.detail ?? "Falha ao iniciar o eval");
+        throw new Error("run_failed");
+      }
+      setSelectedRun(body as EvalRun);
+      toast.success("Eval enfileirado");
+    } else {
+      const res = await fetch("/api/evals/runs/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ definition_id: def.id, models }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        toast.error(body.detail ?? "Falha ao iniciar os evals");
+        throw new Error("batch_failed");
+      }
+      const runs = body as EvalRun[];
+      if (runs.length) setSelectedRun(runs[0]);
+      toast.success(`${runs.length} evals enfileirados (A/B)`);
     }
-    setSelectedRun(body as EvalRun);
     setTab("runs");
-    toast.success("Eval enfileirado");
     setTimeout(load, 400);
   }
 
@@ -635,6 +749,13 @@ export function EvalStudio() {
 
   const metrics = selectedRun?.metrics ?? {};
   const items = (selectedRun?.items ?? []) as EvalItem[];
+  // runs of the same definition with real metrics (drives the A/B comparison)
+  const comparableRuns = selectedRun?.definition_id
+    ? runs.filter(
+        (r) => r.definition_id === selectedRun.definition_id && r.metrics?.decision_accuracy != null,
+      )
+    : [];
+  const showComparison = comparableRuns.length >= 2;
 
   return (
     <div className="space-y-6">
@@ -739,11 +860,66 @@ export function EvalStudio() {
                 </Card>
 
                 <div className="space-y-4">
+                  {showComparison && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-sm">Comparação (A/B) — {comparableRuns.length} execuções</CardTitle>
+                      </CardHeader>
+                      <CardContent className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-xs text-muted-foreground">
+                              <th className="py-1 pr-3">Modelo</th>
+                              <th className="py-1 pr-3">Status</th>
+                              <th className="py-1 pr-3">Decisão</th>
+                              <th className="py-1 pr-3">Recall</th>
+                              <th className="py-1 pr-3">Fuzzy</th>
+                              <th className="py-1 pr-3">Judge</th>
+                              <th className="py-1">Gate</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {comparableRuns.map((r) => (
+                              <tr
+                                key={r.id}
+                                className="border-t cursor-pointer hover:bg-accent"
+                                onClick={() => setSelectedRun(r)}
+                              >
+                                <td className="py-1.5 pr-3 font-mono text-xs">{r.model_used}</td>
+                                <td className="py-1.5 pr-3 text-xs">{r.status}</td>
+                                <td className="py-1.5 pr-3">{pct(r.metrics?.decision_accuracy)}</td>
+                                <td className="py-1.5 pr-3">{pct(r.metrics?.redflag_recall)}</td>
+                                <td className="py-1.5 pr-3">{pct(r.metrics?.field_fuzzy_similarity)}</td>
+                                <td className="py-1.5 pr-3">{String(r.metrics?.llm_judge_score ?? "—")}</td>
+                                <td className="py-1.5">
+                                  {r.metrics?.passed === true ? (
+                                    <span className="font-medium text-emerald-600">Passou</span>
+                                  ) : r.metrics?.passed === false ? (
+                                    <span className="font-medium text-destructive">Falhou</span>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   {selectedRun ? (
                     <>
                       <Card>
                         <CardHeader>
-                          <CardTitle className="text-sm">{selectedRun.name}</CardTitle>
+                          <div className="flex items-center justify-between gap-2">
+                            <CardTitle className="text-sm">{selectedRun.name}</CardTitle>
+                            {typeof selectedRun.metrics?.passed === "boolean" && (
+                              <Badge variant={selectedRun.metrics.passed ? "default" : "destructive"}>
+                                {selectedRun.metrics.passed ? "Passou (gate)" : "Abaixo do limiar"}
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground">modelo: {selectedRun.model_used}</p>
                         </CardHeader>
                         <CardContent>
@@ -808,7 +984,7 @@ export function EvalStudio() {
       </Tabs>
 
       {runTarget && (
-        <RunDialog definition={runTarget} onClose={() => setRunTarget(null)} onRun={(p, m) => startRun(runTarget, p, m)} />
+        <RunDialog definition={runTarget} onClose={() => setRunTarget(null)} onRun={(m) => startRun(runTarget, m)} />
       )}
       {editTarget !== null && (
         <DefinitionFormDialog

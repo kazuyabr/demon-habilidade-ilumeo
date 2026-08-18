@@ -164,6 +164,7 @@ async def run_eval_job(
             name=run.name,
             cases=definition.cases,
             schema_name=definition.schema_name,
+            thresholds=definition.thresholds,
         )
         return {"status": "completed", "metrics": metrics}
     except Exception as exc:  # noqa: BLE001
