@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Dices, KeyRound, Loader2, Save, Trash2, Zap } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Dices,
+  Info,
+  KeyRound,
+  Loader2,
+  Save,
+  Trash2,
+  Zap,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type {
   CredentialSummary,
@@ -53,10 +64,12 @@ const floatOrNull = (v: string): number | null => (v.trim() === "" ? null : pars
 
 function FieldRow({
   label,
+  help,
   custom,
   children,
 }: {
   label: string;
+  help?: string;
   custom?: boolean;
   children: React.ReactNode;
 }) {
@@ -64,6 +77,21 @@ function FieldRow({
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Label>{label}</Label>
+        {help && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label={`Ajuda sobre ${label}`}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <Info className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{help}</TooltipContent>
+          </Tooltip>
+        )}
         {custom && <Badge variant="outline">customizado</Badge>}
       </div>
       {children}
@@ -291,7 +319,20 @@ export function SettingsPanel() {
         </div>
         <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
           <div className="space-y-1">
-            <Label className="text-xs">Host (auto-preenchido — edite se quiser)</Label>
+            <Label className="flex items-center gap-1 text-xs">
+              Host (auto-preenchido — edite se quiser)
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" tabIndex={-1} aria-label="Ajuda sobre Host" className="text-muted-foreground hover:text-foreground">
+                    <Info className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  Endereço do servidor deste provider. Auto-preenchido; edite para apontar para um
+                  servidor ou gateway próprio (BYOK).
+                </TooltipContent>
+              </Tooltip>
+            </Label>
             <Input
               placeholder={providerObj?.api ?? "https://..."}
               value={host}
@@ -299,7 +340,20 @@ export function SettingsPanel() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">API key</Label>
+            <Label className="flex items-center gap-1 text-xs">
+              API key
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" tabIndex={-1} aria-label="Ajuda sobre API key" className="text-muted-foreground hover:text-foreground">
+                    <Info className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  Sua chave deste provider, guardada criptografada (só o final aparece). Sem chave,
+                  usa a do ambiente.
+                </TooltipContent>
+              </Tooltip>
+            </Label>
             <Input
               type="password"
               placeholder={c?.has_api_key ? `••••${c.api_key_last4}` : "adicione sua key"}
@@ -349,6 +403,7 @@ export function SettingsPanel() {
   }
 
   return (
+    <TooltipProvider>
     <div className="grid gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader>
@@ -359,7 +414,11 @@ export function SettingsPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <FieldRow label="Provider de chat" custom={overridden.includes("chat_provider")}>
+          <FieldRow
+            label="Provider de chat"
+            help="De onde vêm as respostas (extração, RAG e agente). Pode ser um modelo local (LM Studio), gratuito (OpenCode) ou nuvem (Vertex/OpenAI)."
+            custom={overridden.includes("chat_provider")}
+          >
             <Select
               value={draft.chat_provider}
               onValueChange={(v) => {
@@ -377,7 +436,11 @@ export function SettingsPanel() {
             </Select>
           </FieldRow>
 
-          <FieldRow label="Modelo de chat" custom={overridden.includes("chat_model")}>
+          <FieldRow
+            label="Modelo de chat"
+            help="Qual modelo desse provider será usado. Modelos maiores tendem a ser melhores, porém mais lentos e caros."
+            custom={overridden.includes("chat_model")}
+          >
             {chatIsCustom ? (
               <Input
                 placeholder="ex.: meu-modelo-custom"
@@ -409,7 +472,11 @@ export function SettingsPanel() {
 
           {chatProviderObj && renderCredFields(draft.chat_provider, chatProviderObj)}
 
-          <FieldRow label="Provider de embeddings" custom={overridden.includes("embedding_provider")}>
+          <FieldRow
+            label="Provider de embeddings"
+            help="De onde vêm os vetores da busca (RAG). Pode ser independente do chat — ex.: fastembed local sem chave."
+            custom={overridden.includes("embedding_provider")}
+          >
             <Select
               value={draft.embedding_provider}
               onValueChange={(v) => {
@@ -427,7 +494,11 @@ export function SettingsPanel() {
             </Select>
           </FieldRow>
 
-          <FieldRow label="Modelo de embeddings" custom={overridden.includes("embedding_model")}>
+          <FieldRow
+            label="Modelo de embeddings"
+            help="Modelo que transforma textos em vetores para a busca semântica. Todos geram 768 dimensões."
+            custom={overridden.includes("embedding_model")}
+          >
             {embedIsCustom ? (
               <Input
                 placeholder="ex.: meu-embedder-custom"
@@ -449,7 +520,11 @@ export function SettingsPanel() {
           {embedProviderObj && renderCredFields(draft.embedding_provider, embedProviderObj)}
 
           <div className="grid grid-cols-2 gap-4">
-            <FieldRow label="Temperatura" custom={overridden.includes("temperature")}>
+            <FieldRow
+              label="Temperatura"
+              help="O quanto a IA pode variar nas respostas. Baixo (0–0.3) = estável e consistente; alto = mais criativo. Para análise de risco, prefira baixo."
+              custom={overridden.includes("temperature")}
+            >
               <Input
                 type="number"
                 step={0.1}
@@ -459,7 +534,11 @@ export function SettingsPanel() {
                 onChange={(e) => set("temperature", parseFloat(e.target.value) || 0)}
               />
             </FieldRow>
-            <FieldRow label="Máx. tokens" custom={overridden.includes("max_tokens")}>
+            <FieldRow
+              label="Máx. tokens"
+              help="Tamanho máximo da resposta (em pedaços de texto). Se a resposta cortar no meio, aumente este valor."
+              custom={overridden.includes("max_tokens")}
+            >
               <Input
                 type="number"
                 step={128}
@@ -487,7 +566,11 @@ export function SettingsPanel() {
                   Anthropic; Seed fixo dá resultados determinísticos (útil para evals).
                 </p>
                 <div className="grid grid-cols-2 gap-4">
-                  <FieldRow label="Top-P" custom={overridden.includes("top_p")}>
+                  <FieldRow
+                    label="Top-P"
+                    help="Amostragem de núcleo: limita a escolha às opções mais prováveis. 1.0 = usa todas; menor = resposta mais focada e previsível."
+                    custom={overridden.includes("top_p")}
+                  >
                     <Input
                       type="number"
                       step={0.05}
@@ -497,7 +580,11 @@ export function SettingsPanel() {
                       onChange={(e) => set("top_p", parseFloat(e.target.value) || 0)}
                     />
                   </FieldRow>
-                  <FieldRow label="Top-K (amostragem)" custom={overridden.includes("sampling_top_k")}>
+                  <FieldRow
+                    label="Top-K (amostragem)"
+                    help="Considera apenas as K opções mais prováveis a cada passo. Vazio = padrão do modelo. Só se aplica a modelos locais, Anthropic e Vertex."
+                    custom={overridden.includes("sampling_top_k")}
+                  >
                     <Input
                       type="number"
                       step={1}
@@ -507,7 +594,11 @@ export function SettingsPanel() {
                       onChange={(e) => set("sampling_top_k", numOrNull(e.target.value))}
                     />
                   </FieldRow>
-                  <FieldRow label="Min-P" custom={overridden.includes("min_p")}>
+                  <FieldRow
+                    label="Min-P"
+                    help="Descarta opções muito menos prováveis que a melhor escolha. Reduz ruído em modelos locais. Vazio = padrão."
+                    custom={overridden.includes("min_p")}
+                  >
                     <Input
                       type="number"
                       step={0.05}
@@ -518,7 +609,11 @@ export function SettingsPanel() {
                       onChange={(e) => set("min_p", floatOrNull(e.target.value))}
                     />
                   </FieldRow>
-                  <FieldRow label="Penalidade de frequência" custom={overridden.includes("frequency_penalty")}>
+                  <FieldRow
+                    label="Penalidade de frequência"
+                    help="Penaliza palavras repetidas na resposta. Valores maiores reduzem repetição em textos longos."
+                    custom={overridden.includes("frequency_penalty")}
+                  >
                     <Input
                       type="number"
                       step={0.1}
@@ -528,7 +623,11 @@ export function SettingsPanel() {
                       onChange={(e) => set("frequency_penalty", parseFloat(e.target.value) || 0)}
                     />
                   </FieldRow>
-                  <FieldRow label="Penalidade de presença" custom={overridden.includes("presence_penalty")}>
+                  <FieldRow
+                    label="Penalidade de presença"
+                    help="Penaliza repetir assuntos já usados. Valores maiores incentivam variedade de temas."
+                    custom={overridden.includes("presence_penalty")}
+                  >
                     <Input
                       type="number"
                       step={0.1}
@@ -538,7 +637,11 @@ export function SettingsPanel() {
                       onChange={(e) => set("presence_penalty", parseFloat(e.target.value) || 0)}
                     />
                   </FieldRow>
-                  <FieldRow label="Seed" custom={overridden.includes("seed")}>
+                  <FieldRow
+                    label="Seed"
+                    help="Semente da aleatoriedade. Vazio = aleatório (varia a cada vez). Fixar um número = resultados repetíveis — útil para avaliar evals e comparar mudanças."
+                    custom={overridden.includes("seed")}
+                  >
                     <div className="flex items-center gap-2">
                       <Input
                         type="number"
@@ -573,7 +676,11 @@ export function SettingsPanel() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <FieldRow label="Chunk size (caracteres)" custom={overridden.includes("chunk_size")}>
+              <FieldRow
+                label="Chunk size (caracteres)"
+                help="Tamanho de cada trecho em que o documento é dividido para a busca. Menor = busca mais fina; maior = mais contexto por trecho."
+                custom={overridden.includes("chunk_size")}
+              >
                 <Input
                   type="number"
                   step={100}
@@ -582,7 +689,11 @@ export function SettingsPanel() {
                   onChange={(e) => set("chunk_size", parseInt(e.target.value, 10) || 0)}
                 />
               </FieldRow>
-              <FieldRow label="Top-K" custom={overridden.includes("top_k")}>
+              <FieldRow
+                label="Top-K"
+                help="Quantos trechos o sistema recupera por consulta. Mais trechos = mais contexto na resposta, porém mais tokens (custo) por pergunta."
+                custom={overridden.includes("top_k")}
+              >
                 <Input
                   type="number"
                   step={1}
@@ -592,11 +703,16 @@ export function SettingsPanel() {
                 />
               </FieldRow>
             </div>
-            <FieldRow label="Busca híbrida (vetorial + full-text)" custom={overridden.includes("rag_hybrid")}>
+            <FieldRow
+              label="Busca híbrida (vetorial + full-text)"
+              help="Une busca por significado (vetorial — acha sinônimos) e por termos exatos (textual — acha nomes e siglas). Recomendado: ligado; só vetorial pode perder nomes exatos."
+              custom={overridden.includes("rag_hybrid")}
+            >
               <Toggle checked={draft.rag_hybrid} onChange={(v) => set("rag_hybrid", v)} />
             </FieldRow>
             <FieldRow
               label="Revisão sênior no agente"
+              help="O agente faz uma segunda passada 'sênior' antes do relatório final. Torna a análise mais conservadora, porém usa mais chamadas."
               custom={overridden.includes("ff_agent_review_enabled")}
             >
               <Toggle
@@ -604,7 +720,11 @@ export function SettingsPanel() {
                 onChange={(v) => set("ff_agent_review_enabled", v)}
               />
             </FieldRow>
-            <FieldRow label="LLM-as-judge nos evals" custom={overridden.includes("ff_eval_llm_judge")}>
+            <FieldRow
+              label="LLM-as-judge nos evals"
+              help="Um LLM extra dá nota de 0 a 5 à qualidade da extração nos evals (comparando com o esperado). Custa chamadas extras, mas mede a qualidade de forma holística."
+              custom={overridden.includes("ff_eval_llm_judge")}
+            >
               <Toggle
                 checked={draft.ff_eval_llm_judge}
                 onChange={(v) => set("ff_eval_llm_judge", v)}
@@ -615,6 +735,7 @@ export function SettingsPanel() {
               <div className="grid grid-cols-2 gap-4">
                 <FieldRow
                   label="Máx. caracteres por trecho"
+                  help="Limite de caracteres de cada evidência que o agente envia ao modelo. Menor = respostas mais rápidas e baratas."
                   custom={overridden.includes("agent_max_chars_per_chunk")}
                 >
                   <Input
@@ -627,6 +748,7 @@ export function SettingsPanel() {
                 </FieldRow>
                 <FieldRow
                   label="Máx. evidência por passo"
+                  help="Limite total de contexto das evidências em cada passo do agente. Protege contra estourar a janela de contexto do modelo."
                   custom={overridden.includes("agent_max_evidence_chars")}
                 >
                   <Input
@@ -688,5 +810,6 @@ export function SettingsPanel() {
         </Button>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
